@@ -19,7 +19,22 @@ add_executable(
   pibot
   src/main.cpp
   src/config.cpp
+  src/orchestrator.cpp
+  audio/audio_manager.cpp
+  audio/stt_engine.cpp
+  audio/tts_engine.cpp
+  brain/tool_definitions.cpp
+  brain/ollama_client.cpp
+  brain/cloud_client.cpp
+  brain/router.cpp
+  brain/tools/time_tool.cpp
+  brain/tools/weather_tool.cpp
+  brain/tools/news_tool.cpp
+  brain/tools/system_tool.cpp
+  brain/tools/joke_tool.cpp
+  senses/wake_word_detector.cpp
+  ui/ui_manager.cpp
 )
 
-target_include_directories(pibot PRIVATE src)
+target_include_directories(pibot PRIVATE . src)
 target_link_libraries(pibot PRIVATE nlohmann_json::nlohmann_json)

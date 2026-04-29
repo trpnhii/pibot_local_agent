@@ -4,6 +4,7 @@
 #include <string>
 
 #include "config.hpp"
+#include "orchestrator.hpp"
 
 int main(int argc, char** argv) {
   try {
@@ -15,6 +16,8 @@ int main(int argc, char** argv) {
     const Config config = Config::Load(config_path);
     std::cout << "PiBot C++ Phase A bootstrap\n";
     std::cout << config.ToDebugString();
+    Orchestrator orchestrator(config);
+    orchestrator.Start();
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "Startup failed: " << ex.what() << "\n";
