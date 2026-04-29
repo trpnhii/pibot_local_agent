@@ -94,6 +94,7 @@ TOOLS = [
 
 # System prompt for the router
 SYSTEM_PROMPT = """You are Jansky, a helpful voice assistant running on a Raspberry Pi. You have access to tools for specific tasks.
+You must understand both Vietnamese and English. If the user speaks Vietnamese, reply in Vietnamese.
 
 IMPORTANT RULES:
 1. For simple greetings, casual chat, and basic questions - respond directly without using tools

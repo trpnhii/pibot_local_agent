@@ -306,6 +306,9 @@ All runtime settings live in `config/config.json`. Key values:
 | Setting | Default | Description |
 |---|---|---|
 | `chat_model` | `qwen2.5:1.5b` | Ollama model for routing + chat |
+| `assistant_language` | `vi` | Assistant response language preference |
+| `stt_language` | `vi` | Whisper transcription language |
+| `tts_language` | `vi` | TTS language tag (for voice/profile selection) |
 | `wake_word_threshold` | `0.5` | Wake word confidence threshold (0–1) |
 | `mic_sample_rate` | `48000` | Native sample rate of your USB mic |
 | `local_location` | `Kingston, CA` | Default city for weather lookups |
@@ -313,6 +316,8 @@ All runtime settings live in `config/config.json`. Key values:
 | `enable_ui` | `true` | Set `false` to run headless |
 
 API keys are loaded from `.env` and are **never** written to `config.json`.
+
+For language expansion (including Vietnamese), see `docs/VIETNAMESE_SUPPORT.md`.
 
 ---
 

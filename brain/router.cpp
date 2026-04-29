@@ -7,12 +7,12 @@
 
 namespace brain {
 namespace {
-const std::vector<std::string> kTimePhrases = {"what time", "what's the time", "current time", "what day is it", "what's the date", "what date"};
-const std::vector<std::string> kWeatherPhrases = {"weather in", "weather for", "what's the weather", "how's the weather", "temperature in", "weather now", "weather today"};
-const std::vector<std::string> kNewsPhrases = {"news", "headlines", "what's happening", "whats happening", "current events", "top stories"};
-const std::vector<std::string> kSystemPhrases = {"system status", "how are you doing", "how are you feeling", "your temperature", "cpu temp", "health check", "how's your health", "how you doing"};
-const std::vector<std::string> kJokePhrases = {"tell me a joke", "joke", "make me laugh", "something funny", "say something funny"};
-const std::vector<std::string> kLocalPhrases = {"hello", "hi", "hey", "good morning", "good afternoon", "good evening", "how are you", "what's up", "who are you", "what are you", "what's your name", "thank you", "thanks", "bye", "goodbye", "see you", "good night", "help", "what can you do"};
+const std::vector<std::string> kTimePhrases = {"what time", "what's the time", "current time", "what day is it", "what's the date", "what date", "may gio", "bay gio la may gio", "hom nay ngay may"};
+const std::vector<std::string> kWeatherPhrases = {"weather in", "weather for", "what's the weather", "how's the weather", "temperature in", "weather now", "weather today", "thoi tiet", "nhiet do", "thoi tiet o", "hom nay troi"};
+const std::vector<std::string> kNewsPhrases = {"news", "headlines", "what's happening", "whats happening", "current events", "top stories", "tin tuc", "thoi su", "tin moi"};
+const std::vector<std::string> kSystemPhrases = {"system status", "how are you doing", "how are you feeling", "your temperature", "cpu temp", "health check", "how's your health", "how you doing", "tinh trang he thong", "trang thai he thong", "suc khoe he thong"};
+const std::vector<std::string> kJokePhrases = {"tell me a joke", "joke", "make me laugh", "something funny", "say something funny", "ke chuyen cuoi", "ke mot cau dua", "lam toi cuoi"};
+const std::vector<std::string> kLocalPhrases = {"hello", "hi", "hey", "good morning", "good afternoon", "good evening", "how are you", "what's up", "who are you", "what are you", "what's your name", "thank you", "thanks", "bye", "goodbye", "see you", "good night", "help", "what can you do", "xin chao", "chao", "ban la ai", "cam on", "tam biet", "ban khoe khong"};
 }  // namespace
 
 Router::Router(OllamaClient client) : client_(std::move(client)) {}
@@ -43,8 +43,14 @@ bool Router::IsLocalChat(const std::string& user_input) const {
 std::string Router::ExtractNewsCategory(const std::string& user_input) const {
   const std::string lower = ToLower(user_input);
   if (lower.find("tech") != std::string::npos) return "technology";
+  if (lower.find("cong nghe") != std::string::npos) return "technology";
   if (lower.find("sport") != std::string::npos) return "sports";
+  if (lower.find("the thao") != std::string::npos) return "sports";
   if (lower.find("medical") != std::string::npos) return "health";
+  if (lower.find("suc khoe") != std::string::npos) return "health";
+  if (lower.find("kinh doanh") != std::string::npos) return "business";
+  if (lower.find("giai tri") != std::string::npos) return "entertainment";
+  if (lower.find("khoa hoc") != std::string::npos) return "science";
   for (const auto& c : {"business", "entertainment", "health", "science", "sports", "technology"}) {
     if (lower.find(c) != std::string::npos) return c;
   }
@@ -59,6 +65,7 @@ std::string Router::ExtractLocation(const std::string& user_input, const std::st
   const std::vector<std::regex> patterns = {
       std::regex(R"(weather (?:in|for|at) ([A-Za-z\s]+))"),
       std::regex(R"(in ([A-Za-z]+))"),
+      std::regex(R"(thoi tiet (?:o|tai) ([\w\s]+))"),
       std::regex(R"(([A-Z][a-z]+(?:\s[A-Z][a-z]+)*))")};
   for (const auto& p : patterns) {
     if (std::regex_search(user_input, m, p) && m.size() > 1) {

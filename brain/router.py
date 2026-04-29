@@ -34,11 +34,26 @@ class Router:
     """Routes user queries to appropriate handlers."""
 
     # Keywords for text-based tool detection (using word boundary matching)
-    TIME_PHRASES = ["what time", "what's the time", "current time", "what day is it", "what's the date", "what date"]
-    WEATHER_PHRASES = ["weather in", "weather for", "what's the weather", "how's the weather", "temperature in", "weather now", "weather today"]
-    NEWS_PHRASES = ["news", "headlines", "what's happening", "whats happening", "current events", "top stories"]
-    SYSTEM_PHRASES = ["system status", "how are you doing", "how are you feeling", "your temperature", "cpu temp", "health check", "how's your health", "how you doing"]
-    JOKE_PHRASES = ["tell me a joke", "joke", "make me laugh", "something funny", "say something funny"]
+    TIME_PHRASES = [
+        "what time", "what's the time", "current time", "what day is it", "what's the date", "what date",
+        "mấy giờ", "may gio", "bây giờ là mấy giờ", "bay gio la may gio", "hôm nay ngày mấy", "hom nay ngay may",
+    ]
+    WEATHER_PHRASES = [
+        "weather in", "weather for", "what's the weather", "how's the weather", "temperature in", "weather now", "weather today",
+        "thời tiết", "thoi tiet", "nhiệt độ", "nhiet do", "thời tiết ở", "thoi tiet o", "hôm nay trời", "hom nay troi",
+    ]
+    NEWS_PHRASES = [
+        "news", "headlines", "what's happening", "whats happening", "current events", "top stories",
+        "tin tức", "tin tuc", "thời sự", "thoi su", "tin mới", "tin moi",
+    ]
+    SYSTEM_PHRASES = [
+        "system status", "how are you doing", "how are you feeling", "your temperature", "cpu temp", "health check", "how's your health", "how you doing",
+        "tình trạng hệ thống", "tinh trang he thong", "trạng thái hệ thống", "trang thai he thong", "sức khỏe hệ thống", "suc khoe he thong",
+    ]
+    JOKE_PHRASES = [
+        "tell me a joke", "joke", "make me laugh", "something funny", "say something funny",
+        "kể chuyện cười", "ke chuyen cuoi", "kể một câu đùa", "ke mot cau dua", "làm tôi cười", "lam toi cuoi",
+    ]
 
     # Phrases that the local model can handle — simple chat, greetings, identity
     LOCAL_PHRASES = [
@@ -46,6 +61,8 @@ class Router:
         "how are you", "what's up", "who are you", "what are you", "what's your name",
         "thank you", "thanks", "bye", "goodbye", "see you", "good night",
         "help", "what can you do",
+        "xin chào", "xin chao", "chào", "chao", "bạn là ai", "ban la ai",
+        "cảm ơn", "cam on", "tạm biệt", "tam biet", "bạn khỏe không", "ban khoe khong",
     ]
 
     def __init__(self, ollama_client: OllamaClient):
@@ -70,7 +87,22 @@ class Router:
         user_lower = user_input.lower()
         categories = ["business", "entertainment", "health", "science", "sports", "technology"]
         # Also match common synonyms
-        synonyms = {"tech": "technology", "sport": "sports", "medical": "health"}
+        synonyms = {
+            "tech": "technology",
+            "sport": "sports",
+            "medical": "health",
+            "công nghệ": "technology",
+            "cong nghe": "technology",
+            "thể thao": "sports",
+            "the thao": "sports",
+            "sức khỏe": "health",
+            "suc khoe": "health",
+            "kinh doanh": "business",
+            "giải trí": "entertainment",
+            "giai tri": "entertainment",
+            "khoa học": "science",
+            "khoa hoc": "science",
+        }
         for synonym, category in synonyms.items():
             if synonym in user_lower:
                 return category
@@ -150,6 +182,8 @@ class Router:
         patterns = [
             r"weather (?:in|for|at) ([A-Za-z\s]+)",
             r"in ([A-Za-z]+)",
+            r"thời tiết (?:ở|tại) ([\w\s]+)",
+            r"thoi tiet (?:o|tai) ([\w\s]+)",
             r"([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)"  # Capitalized words
         ]
 

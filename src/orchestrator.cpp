@@ -10,7 +10,7 @@ Orchestrator::Orchestrator(const Config& config)
     : config_(config),
       audio_(config.target_sample_rate, config.mic_sample_rate),
       tts_(config.piper_voice),
-      stt_(config.whisper_path, config.whisper_model),
+      stt_(config.whisper_path, config.whisper_model, config.stt_language),
       ollama_(config.chat_model),
       router_(ollama_),
       wake_word_(config.wake_word_model, config.wake_word_threshold, config.mic_sample_rate) {
@@ -33,7 +33,11 @@ void Orchestrator::Start() {
     ui_->Start();
     ui_->SetState(ui::UIState::kIdle);
   }
-  Speak("Hello! I'm Jansky. Say hey Jansky to get my attention.");
+  if (config_.assistant_language == "vi") {
+    Speak("Xin chao! Toi la Jansky. Hay noi hey Jansky de goi toi.");
+  } else {
+    Speak("Hello! I'm Jansky. Say hey Jansky to get my attention.");
+  }
   // Placeholder entry path: processes one sample query to verify wiring.
   ProcessQuery("what time is it");
   if (ui_) {
@@ -52,11 +56,13 @@ void Orchestrator::ProcessQuery(const std::string& text) {
       break;
     case brain::ToolType::kWeather:
       Speak(weather_ ? weather_->GetWeather(result.arguments.value("location", config_.local_location))
-                    : "Sorry, weather lookup is not configured.");
+                    : (config_.assistant_language == "vi" ? "Xin loi, tinh nang thoi tiet chua duoc cau hinh."
+                                                          : "Sorry, weather lookup is not configured."));
       break;
     case brain::ToolType::kNews:
       Speak(news_ ? news_->GetNews(result.arguments.value("category", ""))
-                 : "Sorry, news lookup is not configured.");
+                 : (config_.assistant_language == "vi" ? "Xin loi, tinh nang tin tuc chua duoc cau hinh."
+                                                       : "Sorry, news lookup is not configured."));
       break;
     case brain::ToolType::kSystemStatus:
       Speak(brain::tools::GetSystemStatus());
@@ -66,7 +72,8 @@ void Orchestrator::ProcessQuery(const std::string& text) {
       break;
     case brain::ToolType::kCloud:
       Speak(cloud_ ? cloud_->Chat(result.arguments.value("query", text), false)
-                  : "Sorry, cloud AI is not configured.");
+                  : (config_.assistant_language == "vi" ? "Xin loi, cloud AI chua duoc cau hinh."
+                                                        : "Sorry, cloud AI is not configured."));
       break;
   }
 }

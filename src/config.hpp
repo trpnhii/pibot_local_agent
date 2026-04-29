@@ -8,12 +8,17 @@ struct Config {
   std::string project_root = "/home/jansky/jansky";
   std::string assets_path = "/home/jansky/jansky/assets/face";
 
+  // Language
+  std::string assistant_language = "vi";
+  std::string stt_language = "vi";
+  std::string tts_language = "vi";
+
   // Audio / models
   std::string piper_voice =
-      "/home/jansky/jansky/piper/voices/en_GB-semaine-medium.onnx";
+      "/home/jansky/jansky/piper/voices/vi_VN-vais1000-medium.onnx";
   std::string whisper_path = "/usr/local/bin/whisper-cpp";
   std::string whisper_model =
-      "/home/jansky/jansky/whisper.cpp/models/ggml-base.en-q5_0.bin";
+      "/home/jansky/jansky/whisper.cpp/models/ggml-base-q5_0.bin";
   std::string chat_model = "qwen2.5:1.5b";
 
   // Wake word

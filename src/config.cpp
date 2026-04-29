@@ -82,6 +82,9 @@ void ApplyJsonIfPresent(const nlohmann::json& data, Config& config) {
 
   set_string("project_root", config.project_root);
   set_string("assets_path", config.assets_path);
+  set_string("assistant_language", config.assistant_language);
+  set_string("stt_language", config.stt_language);
+  set_string("tts_language", config.tts_language);
   set_string("piper_voice", config.piper_voice);
   set_string("whisper_path", config.whisper_path);
   set_string("whisper_model", config.whisper_model);
@@ -137,6 +140,9 @@ std::string Config::ToDebugString() const {
   out << "Config{\n";
   out << "  project_root: " << project_root << "\n";
   out << "  assets_path: " << assets_path << "\n";
+  out << "  assistant_language: " << assistant_language << "\n";
+  out << "  stt_language: " << stt_language << "\n";
+  out << "  tts_language: " << tts_language << "\n";
   out << "  piper_voice: " << piper_voice << "\n";
   out << "  whisper_path: " << whisper_path << "\n";
   out << "  whisper_model: " << whisper_model << "\n";

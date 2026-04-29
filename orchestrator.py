@@ -63,7 +63,8 @@ class Orchestrator:
         print("  - STT engine")
         self.stt = WhisperSTT(
             whisper_path=config.whisper_path,
-            model_path=config.whisper_model
+            model_path=config.whisper_model,
+            language=config.stt_language
         )
 
         # Brain
@@ -164,7 +165,10 @@ class Orchestrator:
 
         # Speak startup message BEFORE starting wake word detection
         # (otherwise the speaker saying "Hey Jarvis" triggers the detector)
-        self._speak("Hello! I'm Jansky. Say hey Jansky to get my attention.")
+        if self.config.assistant_language.lower().startswith("vi"):
+            self._speak("Xin chao! Toi la Jansky. Hay noi hey Jansky de goi toi.")
+        else:
+            self._speak("Hello! I'm Jansky. Say hey Jansky to get my attention.")
 
         # Start wake word detection after greeting finishes
         self.wake_word.start(callback=self._on_wake_word)
@@ -233,14 +237,20 @@ class Orchestrator:
             print(f"User said: {text}")
         except Exception as e:
             print(f"Transcription error: {e}")
-            self._speak("Sorry, I didn't catch that.")
+            if self.config.assistant_language.lower().startswith("vi"):
+                self._speak("Xin loi, toi chua nghe ro.")
+            else:
+                self._speak("Sorry, I didn't catch that.")
             if self.ui:
                 self.ui.set_state(self.UIState.IDLE)
             self.wake_word.resume()
             return
 
         if not text.strip():
-            self._speak("I didn't hear anything.")
+            if self.config.assistant_language.lower().startswith("vi"):
+                self._speak("Toi khong nghe thay gi.")
+            else:
+                self._speak("I didn't hear anything.")
             if self.ui:
                 self.ui.set_state(self.UIState.IDLE)
             self.wake_word.resume()
@@ -256,7 +266,10 @@ class Orchestrator:
             self._process_query(text)
         except Exception as e:
             print(f"Processing error: {e}")
-            self._speak("Sorry, something went wrong.")
+            if self.config.assistant_language.lower().startswith("vi"):
+                self._speak("Xin loi, da co loi xay ra.")
+            else:
+                self._speak("Sorry, something went wrong.")
             if self.ui:
                 self.ui.set_state(self.UIState.ERROR)
             time.sleep(1)
@@ -308,7 +321,10 @@ class Orchestrator:
                 response = self.weather.get_weather(location)
                 self._speak(response)
             else:
-                self._speak("Sorry, weather lookup is not configured.")
+                if self.config.assistant_language.lower().startswith("vi"):
+                    self._speak("Xin loi, tinh nang thoi tiet chua duoc cau hinh.")
+                else:
+                    self._speak("Sorry, weather lookup is not configured.")
 
         elif result.tool == ToolType.NEWS:
             if self.news:
@@ -317,7 +333,10 @@ class Orchestrator:
                 response = self.news.get_news(category)
                 self._speak(response)
             else:
-                self._speak("Sorry, news lookup is not configured.")
+                if self.config.assistant_language.lower().startswith("vi"):
+                    self._speak("Xin loi, tinh nang tin tuc chua duoc cau hinh.")
+                else:
+                    self._speak("Sorry, news lookup is not configured.")
 
         elif result.tool == ToolType.SYSTEM_STATUS:
             print("[tool] get_system_status")
@@ -337,7 +356,10 @@ class Orchestrator:
     def _handle_cloud_query(self, query: str):
         """Handle cloud API query."""
         if not self.cloud:
-            self._speak("Sorry, cloud AI is not configured.")
+            if self.config.assistant_language.lower().startswith("vi"):
+                self._speak("Xin loi, cloud AI chua duoc cau hinh.")
+            else:
+                self._speak("Sorry, cloud AI is not configured.")
             return
 
         try:
@@ -346,7 +368,10 @@ class Orchestrator:
             self._speak(response)
         except Exception as e:
             print(f"Cloud error: {e}")
-            self._speak("Sorry, I couldn't reach the cloud AI.")
+            if self.config.assistant_language.lower().startswith("vi"):
+                self._speak("Xin loi, toi khong the ket noi den cloud AI.")
+            else:
+                self._speak("Sorry, I couldn't reach the cloud AI.")
 
     def _speak(self, text: str):
         """Speak text through TTS."""

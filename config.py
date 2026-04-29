@@ -17,12 +17,17 @@ class Config:
     project_root: str = "/home/jansky/jansky"
     assets_path: str = "/home/jansky/jansky/assets/face"
 
+    # Language
+    assistant_language: str = "vi"
+    stt_language: str = "vi"
+    tts_language: str = "vi"
+
     # Audio - Piper TTS (using piper-tts Python package)
-    piper_voice: str = "/home/jansky/jansky/piper/voices/en_GB-semaine-medium.onnx"
+    piper_voice: str = "/home/jansky/jansky/piper/voices/vi_VN-vais1000-medium.onnx"
 
     # Whisper.cpp
     whisper_path: str = "/usr/local/bin/whisper-cpp"
-    whisper_model: str = "/home/jansky/jansky/whisper.cpp/models/ggml-base.en-q5_0.bin"
+    whisper_model: str = "/home/jansky/jansky/whisper.cpp/models/ggml-base-q5_0.bin"
 
     # Models
     chat_model: str = "qwen2.5:1.5b"
