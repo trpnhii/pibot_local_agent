@@ -26,6 +26,35 @@ def _read_env_value(env_path: Path, key: str) -> str:
     return ""
 
 
+def _pick_flash_model(api_key: str) -> str:
+    """
+    Pick an available Gemini Flash model for this API key.
+    Falls back to a sensible default if listing fails.
+    """
+    try:
+        from google import genai  # pylint: disable=import-error,no-name-in-module
+    except Exception:
+        return "gemini-2.5-flash-lite"
+
+    try:
+        client = genai.Client(api_key=api_key)
+        models = list(client.models.list())
+        # Prefer flash models that support generateContent.
+        candidates: list[str] = []
+        for m in models:
+            name = getattr(m, "name", "") or ""
+            supported = getattr(m, "supported_actions", None) or getattr(m, "supported_methods", None) or []
+            if "generateContent" not in supported:
+                continue
+            if "flash" in name.lower():
+                candidates.append(name.replace("models/", ""))
+        # Stable preference: newest-looking first.
+        candidates.sort(reverse=True)
+        return candidates[0] if candidates else "gemini-2.5-flash-lite"
+    except Exception:
+        return "gemini-2.5-flash-lite"
+
+
 def test_gemini() -> bool:
     env_path = REPO_ROOT / ".env"
     api_key = _read_env_value(env_path, "GEMINI_API_KEY")
@@ -33,11 +62,12 @@ def test_gemini() -> bool:
         print("SKIP Gemini (missing GEMINI_API_KEY in repo .env)")
         return True
 
+    model = _pick_flash_model(api_key)
     print("Testing Gemini client...")
     client = GeminiClient(
         api_key=api_key,
         soul_path=str(REPO_ROOT / "config" / "cloud_soul.md"),
-        model="gemini-2.0-flash",
+        model=model,
     )
 
     # Keep prompt short/cheap; verify non-empty output.
@@ -49,6 +79,9 @@ def test_gemini() -> bool:
         # Quota/rate-limit is common on free tiers; treat as a skip.
         if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
             print("SKIP Gemini (quota/rate limit):", msg.splitlines()[0][:160])
+            return True
+        if "NOT_FOUND" in msg or "not found" in msg.lower() or "no longer available" in msg.lower():
+            print("SKIP Gemini (model not available for this key):", msg.splitlines()[0][:200])
             return True
         print("X Gemini request failed:", msg.splitlines()[0][:200])
         return False
