@@ -18,7 +18,7 @@
   "cloud_soul_path": "/home/pi/workspace/pibot_local_agent/config/cloud_soul.md",
   "display_width": 800,
   "display_height": 480,
-  "use_framebuffer": true,
+  "use_framebuffer": false,
   "enable_streaming_tts": false,
   "enable_ui": true,
   "local_location": "Kingston, CA"

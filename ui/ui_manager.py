@@ -29,7 +29,7 @@ class UIManager:
         height: int = 480,
         assets_path: str = "/home/jansky/jansky/assets/face",
         fps: int = 30,
-        use_framebuffer: bool = True
+        use_framebuffer: bool = False
     ):
         self.width = width
         self.height = height
@@ -82,27 +82,29 @@ class UIManager:
     
     def _render_loop(self):
         """Main render loop — owns the pygame display context."""
-        # --- Initialize pygame in THIS thread (required for EGL/Wayland) ---
-        os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
-        os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
-        os.environ["SDL_VIDEODRIVER"] = "wayland"
+        # If using the Pi's fullscreen framebuffer mode, force Wayland driver.
+        # Otherwise, prefer a regular window (desktop-friendly).
+        if self.use_framebuffer:
+            os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+            os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
+            os.environ["SDL_VIDEODRIVER"] = "wayland"
         
         try:
             pygame.display.init()
             pygame.font.init()
-            screen = pygame.display.set_mode(
-                (self.width, self.height),
-                pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF
-            )
+            flags = pygame.HWSURFACE | pygame.DOUBLEBUF
+            if self.use_framebuffer:
+                flags |= pygame.FULLSCREEN
+            screen = pygame.display.set_mode((self.width, self.height), flags)
             pygame.display.set_caption("Jansky")
-            print(f"    Display driver: wayland")
+            print(f"    Display driver: {pygame.display.get_driver()} (framebuffer={self.use_framebuffer})")
         except pygame.error as e:
             print(f"    Wayland display failed: {e}, UI disabled")
             self._ready.set()
             return
         
         try:
-            pygame.mouse.set_visible(False)
+            pygame.mouse.set_visible(not self.use_framebuffer)
         except:
             pass
         

@@ -58,7 +58,7 @@ class Config:
     # Display
     display_width: int = 800
     display_height: int = 480
-    use_framebuffer: bool = True
+    use_framebuffer: bool = False
 
     # Features
     enable_streaming_tts: bool = False
