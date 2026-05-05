@@ -38,6 +38,8 @@ class Config:
 
     # Microphone settings (for USB mics that may have different sample rates)
     mic_sample_rate: int = 48000
+    mic_name: str = ""
+    speaker_name: str = ""
 
     # Local location default
     local_location: str = "Kingston, CA"

@@ -54,7 +54,9 @@ class Orchestrator:
         print("  - Audio manager")
         self.audio = AudioManager(
             sample_rate=config.target_sample_rate,
-            mic_sample_rate=config.mic_sample_rate
+            mic_sample_rate=config.mic_sample_rate,
+            mic_name=config.mic_name,
+            speaker_name=config.speaker_name,
         )
 
         print("  - TTS engine")

@@ -35,6 +35,16 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
     )
 
 
+def _find_first_device(kind: str) -> int:
+    """Pick the first input/output device with channels."""
+    devices = sd.query_devices()
+    channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
+    for i, d in enumerate(devices):
+        if d.get(channel_key, 0) > 0:
+            return i
+    raise RuntimeError(f"No {kind} audio device found by sounddevice. Devices: {[(i, d.get('name')) for i, d in enumerate(devices)]}")
+
+
 def _find_alsa_card_by_name(name_substring: str) -> str:
     """Find ALSA card number by name, returns 'plughw:N,0' string."""
     try:
@@ -63,7 +73,9 @@ class AudioManager:
         sample_rate: int = 16000,
         mic_sample_rate: int = 48000,
         channels: int = 1,
-        dtype: str = 'int16'
+        dtype: str = 'int16',
+        mic_name: str = "",
+        speaker_name: str = "",
     ):
         self.sample_rate = sample_rate
         self.mic_sample_rate = mic_sample_rate
@@ -75,10 +87,26 @@ class AudioManager:
         self._audio_buffer = []
 
         # Resolve device indices at init time
-        self.mic_device = _find_device_by_name(MIC_NAME, "input")
-        self.speaker_alsa = _find_alsa_card_by_name(SPEAKER_NAME)
-        print("    Mic: device {} ({})".format(self.mic_device, MIC_NAME))
-        print("    Speaker: {} ({})".format(self.speaker_alsa, SPEAKER_NAME))
+        effective_mic_name = (mic_name or os.getenv("JANSKY_MIC_NAME") or MIC_NAME).strip()
+        effective_speaker_name = (speaker_name or os.getenv("JANSKY_SPEAKER_NAME") or SPEAKER_NAME).strip()
+
+        try:
+            self.mic_device = _find_device_by_name(effective_mic_name, "input") if effective_mic_name else _find_first_device("input")
+        except Exception as e:
+            devices = sd.query_devices()
+            raise RuntimeError(
+                "Mic device not found.\n"
+                f"- Tried name contains: '{effective_mic_name}'\n"
+                f"- sounddevice devices: {[(i, d.get('name'), d.get('max_input_channels')) for i, d in enumerate(devices)]}\n"
+                "Fix:\n"
+                "1) Plug in a USB microphone\n"
+                "2) Run: python -c \"import sounddevice as sd; print(list(enumerate(sd.query_devices())))\"\n"
+                "3) Set `mic_name` in config/config.json to a substring of your mic device name.\n"
+            ) from e
+
+        self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
+        print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
+        print("    Speaker: {} ({})".format(self.speaker_alsa, effective_speaker_name or "auto"))
 
     def mute(self):
         """Mute microphone input (during TTS playback)."""

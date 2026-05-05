@@ -188,5 +188,15 @@ python tests/test_audio_pipeline.py
 - **TTS voice missing**
   - Ensure both `.onnx` and `.onnx.json` exist for your selected Piper voice
 - **Audio devices not found**
-  - This repo uses name matching in `audio/audio_manager.py`. Update the device name constants to match your mic/speaker, or list devices using ALSA tools (`arecord -l`, `aplay -l`).
+  - List devices:
+
+```bash
+arecord -l
+aplay -l
+python -c "import sounddevice as sd; print(list(enumerate(sd.query_devices())))"
+```
+
+  - Then set these in `config/config.json`:
+    - `mic_name`: substring of your microphone device name (leave empty for auto-pick)
+    - `speaker_name`: substring of your speaker card name used by `aplay -l` (leave empty for default)
 
