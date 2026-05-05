@@ -113,7 +113,8 @@ class Orchestrator:
         self.wake_word = WakeWordDetector(
             model_path=config.wake_word_model,
             threshold=config.wake_word_threshold,
-            mic_sample_rate=config.mic_sample_rate
+            mic_sample_rate=config.mic_sample_rate,
+            mic_name=config.mic_name,
         )
 
         # UI (optional)

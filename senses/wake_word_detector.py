@@ -20,15 +20,15 @@ except ImportError:
 MIC_NAME = "USB PnP Sound Device"
 
 
-def _find_mic_device() -> int:
-    """Find the USB mic device index by name."""
+def _find_mic_device(name_substring: str) -> int:
+    """Find an input mic device index by name substring."""
     devices = sd.query_devices()
     for i, d in enumerate(devices):
-        if MIC_NAME.lower() in d["name"].lower() and d["max_input_channels"] > 0:
+        if name_substring.lower() in d["name"].lower() and d["max_input_channels"] > 0:
             return i
     raise RuntimeError(
         "Mic '{}' not found. Available: {}".format(
-            MIC_NAME, [(i, d["name"]) for i, d in enumerate(devices)]
+            name_substring, [(i, d["name"]) for i, d in enumerate(devices)]
         )
     )
 
@@ -50,6 +50,7 @@ class WakeWordDetector:
         threshold: float = 0.5,
         sample_rate: int = 16000,
         mic_sample_rate: int = 48000,
+        mic_name: str = "",
         inference_framework: str = "onnx",
         gain_target_peak: float = 0.9
     ):
@@ -58,13 +59,16 @@ class WakeWordDetector:
 
         self.threshold = threshold
         self.sample_rate = sample_rate
-        self.mic_sample_rate = 48000
+        self.mic_sample_rate = mic_sample_rate
         self.gain_target_peak = gain_target_peak
-        self.mic_chunk_size = 3840  # 1280 * 3 (80ms at 48kHz -> 16kHz)
+        # openWakeWord expects 80ms chunks at 16kHz = 1280 samples.
+        self.chunk_samples_16k = int(self.sample_rate * 0.08)
+        self.mic_chunk_size = max(256, int(self.mic_sample_rate * 0.08))
 
         # Resolve mic device by name (survives USB re-enumeration)
-        self.mic_device = _find_mic_device()
-        print("    Wake word mic: device {} ({})".format(self.mic_device, MIC_NAME))
+        effective_mic_name = (mic_name or MIC_NAME).strip()
+        self.mic_device = _find_mic_device(effective_mic_name)
+        print("    Wake word mic: device {} ({}, {} Hz)".format(self.mic_device, effective_mic_name, self.mic_sample_rate))
 
         # Use custom model if provided, otherwise fall back to built-in hey_jarvis
         use_custom = (
@@ -86,6 +90,11 @@ class WakeWordDetector:
         self._paused = False
         self._audio_queue: Queue = Queue()
         self._gain = 4.0
+        self._last_scores = {}
+
+    def get_last_scores(self) -> dict:
+        """Return last wake-word scores (for debugging)."""
+        return dict(self._last_scores)
 
     def start(self, callback: Callable[[], None]):
         """Start listening for wake word."""
@@ -135,6 +144,29 @@ class WakeWordDetector:
         gained = np.clip(audio * self._gain, -32768, 32767)
         return gained.astype(np.int16)
 
+    def _resample_to_16k(self, audio_i16: np.ndarray) -> np.ndarray:
+        """Resample int16 mono audio from mic_sample_rate to 16k."""
+        if self.mic_sample_rate == self.sample_rate:
+            out = audio_i16
+        else:
+            x = audio_i16.astype(np.float32)
+            n_in = x.shape[0]
+            n_out = self.chunk_samples_16k
+            if n_in <= 1:
+                return np.zeros((n_out,), dtype=np.int16)
+            t_in = np.linspace(0.0, 1.0, num=n_in, endpoint=False)
+            t_out = np.linspace(0.0, 1.0, num=n_out, endpoint=False)
+            y = np.interp(t_out, t_in, x).astype(np.float32)
+            out = np.clip(y, -32768, 32767).astype(np.int16)
+
+        # Ensure exact length the model expects.
+        if out.shape[0] != self.chunk_samples_16k:
+            if out.shape[0] > self.chunk_samples_16k:
+                out = out[: self.chunk_samples_16k]
+            else:
+                out = np.pad(out, (0, self.chunk_samples_16k - out.shape[0]))
+        return out
+
     def _listen_loop(self):
         """Main listening loop - reopens stream after each pause/resume cycle."""
         while self._running:
@@ -177,9 +209,10 @@ class WakeWordDetector:
 
                 audio = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
                 normalized = self._normalize(audio)
-                decimated = normalized[::3]
+                frame_16k = self._resample_to_16k(normalized)
 
-                predictions = self.model.predict(decimated)
+                predictions = self.model.predict(frame_16k)
+                self._last_scores = predictions
 
                 for model_name, score in predictions.items():
                     if score >= self.threshold:
