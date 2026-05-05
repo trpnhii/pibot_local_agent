@@ -33,7 +33,7 @@ class Config:
     chat_model: str = "qwen2.5:1.5b"
 
     # Wake word
-    wake_word_model: str = "/home/jansky/jansky/models/wake_word/hey_jansky.onnx"
+    wake_word_model: str = "/home/jansky/jansky/models/wake_word/Hey_Jansky.onnx"
     wake_word_threshold: float = 0.5
 
     # Microphone settings (for USB mics that may have different sample rates)
@@ -45,6 +45,7 @@ class Config:
 
     # API Keys (loaded from environment)
     openweather_api_key: str = ""
+    gemini_api_key: str = ""
     moonshot_api_key: str = ""
     newsapi_key: str = ""
 
@@ -71,7 +72,7 @@ class Config:
             config_path = os.path.join(config.project_root, "config", "config.json")
 
         if Path(config_path).exists():
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
                 for key, value in data.items():
                     if hasattr(config, key):
@@ -87,10 +88,11 @@ class Config:
             "OPENWEATHER_API_KEY",
             config.openweather_api_key
         )
-        config.moonshot_api_key = os.getenv(
-            "MOONSHOT_API_KEY",
-            config.moonshot_api_key
-        )
+        config.gemini_api_key = os.getenv("GEMINI_API_KEY", config.gemini_api_key)
+        # Backward compatibility: allow legacy env var to keep working
+        config.moonshot_api_key = os.getenv("MOONSHOT_API_KEY", config.moonshot_api_key)
+        if not config.gemini_api_key and config.moonshot_api_key:
+            config.gemini_api_key = config.moonshot_api_key
         config.newsapi_key = os.getenv(
             "NEWSAPI_KEY",
             config.newsapi_key
@@ -100,7 +102,7 @@ class Config:
 
     def _load_env_file(self, path: str):
         """Load environment variables from .env file."""
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -120,5 +122,5 @@ class Config:
             if not k.endswith("_api_key") and not k.endswith("_key")
         }
 
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)

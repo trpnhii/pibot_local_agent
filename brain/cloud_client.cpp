@@ -19,9 +19,9 @@ std::string KimiClient::Chat(const std::string& query, bool /*stream*/) const {
     return "Sorry, cloud AI is not configured.";
   }
   if (!soul_prompt_.empty()) {
-    return "Cloud response (C++ placeholder): " + query;
+    return "Gemini response (C++ placeholder): " + query;
   }
-  return "Cloud response: " + query;
+  return "Gemini response: " + query;
 }
 
 }  // namespace brain

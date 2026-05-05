@@ -7,7 +7,7 @@ import tempfile
 import os
 import wave
 from pathlib import Path
-from typing import Optional, Generator
+from typing import Optional
 
 # Use piper-tts Python package
 try:
@@ -23,10 +23,19 @@ class PiperTTS:
     
     def __init__(
         self,
-        model_path: str = "/home/jansky/jansky/piper/voices/en_GB-semaine-medium.onnx",
+        model_path: Optional[str] = None,
         speaking_rate: float = 1.0,
         speaker_id: int = 0  # For multi-speaker models
     ):
+        # Default to runtime config to avoid hardcoded English voice.
+        if model_path is None:
+            try:
+                from config import Config  # type: ignore
+                cfg = Config.load()
+                model_path = cfg.piper_voice
+            except Exception:
+                model_path = "/home/jansky/jansky/piper/voices/vi_VN-vais1000-medium.onnx"
+
         self.model_path = model_path
         self.speaking_rate = speaking_rate
         self.speaker_id = speaker_id

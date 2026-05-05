@@ -22,7 +22,7 @@ struct Config {
   std::string chat_model = "qwen2.5:1.5b";
 
   // Wake word
-  std::string wake_word_model = "/home/jansky/jansky/models/wake_word/hey_jansky.onnx";
+  std::string wake_word_model = "/home/jansky/jansky/models/wake_word/Hey_Jansky.onnx";
   double wake_word_threshold = 0.5;
 
   // Audio settings
@@ -34,6 +34,7 @@ struct Config {
 
   // API keys
   std::string openweather_api_key = "";
+  std::string gemini_api_key = "";
   std::string moonshot_api_key = "";
   std::string newsapi_key = "";
 

@@ -95,6 +95,7 @@ void ApplyJsonIfPresent(const nlohmann::json& data, Config& config) {
   set_int("target_sample_rate", config.target_sample_rate);
   set_string("local_location", config.local_location);
   set_string("openweather_api_key", config.openweather_api_key);
+  set_string("gemini_api_key", config.gemini_api_key);
   set_string("moonshot_api_key", config.moonshot_api_key);
   set_string("newsapi_key", config.newsapi_key);
   set_string("local_soul_path", config.local_soul_path);
@@ -129,7 +130,12 @@ Config Config::Load(const std::optional<std::string>& config_path) {
 
   // Env vars override all previous sources.
   config.openweather_api_key = GetEnvOr("OPENWEATHER_API_KEY", config.openweather_api_key);
+  config.gemini_api_key = GetEnvOr("GEMINI_API_KEY", config.gemini_api_key);
   config.moonshot_api_key = GetEnvOr("MOONSHOT_API_KEY", config.moonshot_api_key);
+  if (config.gemini_api_key.empty() && !config.moonshot_api_key.empty()) {
+    // Backward compatibility: legacy env var treated as gemini key.
+    config.gemini_api_key = config.moonshot_api_key;
+  }
   config.newsapi_key = GetEnvOr("NEWSAPI_KEY", config.newsapi_key);
 
   return config;
@@ -160,6 +166,7 @@ std::string Config::ToDebugString() const {
   out << "  enable_streaming_tts: " << (enable_streaming_tts ? "true" : "false") << "\n";
   out << "  enable_ui: " << (enable_ui ? "true" : "false") << "\n";
   out << "  openweather_api_key_set: " << (!openweather_api_key.empty() ? "yes" : "no") << "\n";
+  out << "  gemini_api_key_set: " << (!gemini_api_key.empty() ? "yes" : "no") << "\n";
   out << "  moonshot_api_key_set: " << (!moonshot_api_key.empty() ? "yes" : "no") << "\n";
   out << "  newsapi_key_set: " << (!newsapi_key.empty() ? "yes" : "no") << "\n";
   out << "}\n";

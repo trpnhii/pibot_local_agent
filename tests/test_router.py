@@ -19,11 +19,11 @@ def test_router():
     client = OllamaClient(model="qwen2.5:1.5b")
     
     if not client.is_available():
-        print("✗ Ollama not running!")
+        print("X Ollama not running!")
         print("  Start with: ollama serve")
         return False
     
-    print("✓ Ollama is running")
+    print("OK Ollama is running")
     
     router = Router(client)
     
@@ -41,7 +41,7 @@ def test_router():
     passed = 0
     for user_input, expected in test_cases:
         result = router.route(user_input)
-        status = "✓" if result.tool == expected else "✗"
+        status = "OK" if result.tool == expected else "X"
         if result.tool == expected:
             passed += 1
         

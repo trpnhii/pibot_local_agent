@@ -93,11 +93,11 @@ class Orchestrator:
             except Exception as e:
                 print(f"    Warning: News tool unavailable: {e}")
 
-        if config.moonshot_api_key:
+        if config.gemini_api_key or config.moonshot_api_key:
             print("  - Cloud client")
             try:
                 self.cloud = KimiClient(
-                    api_key=config.moonshot_api_key,
+                    api_key=config.gemini_api_key or config.moonshot_api_key,
                     soul_path=config.cloud_soul_path
                 )
             except Exception as e:

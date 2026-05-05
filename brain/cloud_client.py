@@ -1,103 +1,68 @@
 """
-Cloud API client for Kimi K2 (Moonshot).
+Cloud API client for Gemini (Google AI).
 """
 
-import httpx
-import json
-from typing import Generator, Optional, Union
+from __future__ import annotations
+
+from typing import Optional
 from pathlib import Path
 import os
 
 
-class KimiClient:
-    """Client for Kimi K2 (Moonshot) API."""
-    
-    BASE_URL = "https://api.moonshot.ai/v1"
-    
+class GeminiClient:
+    """Client for Gemini API.
+
+    Keeps a similar interface to the old Moonshot client:
+      - chat(query, stream=False) -> str
+    """
+
     def __init__(
         self,
         api_key: Optional[str] = None,
-        soul_path: Optional[str] = None
+        soul_path: Optional[str] = None,
+        model: str = "gemini-1.5-flash",
     ):
-        self.api_key = api_key or os.getenv("MOONSHOT_API_KEY")
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
         if not self.api_key:
-            raise ValueError("Moonshot API key required")
-        
-        self.client = httpx.Client(
-            timeout=60.0,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-        )
+            raise ValueError("Gemini API key required (set GEMINI_API_KEY)")
+        self.model = model
         
         # Load cloud soul/personality
         self.soul_prompt = ""
         if soul_path and Path(soul_path).exists():
-            self.soul_prompt = Path(soul_path).read_text()
+            self.soul_prompt = Path(soul_path).read_text(encoding="utf-8")
     
     def chat(
         self,
         query: str,
-        stream: bool = True
-    ) -> Union[Generator[str, None, None], str]:
-        """
-        Send query to Kimi K2.
-        
-        Args:
-            query: User query
-            stream: Whether to stream response
-        
-        Returns:
-            Generated response (streamed or complete)
-        """
-        messages = []
-        
-        # Add soul/personality if available
-        if self.soul_prompt:
-            messages.append({
-                "role": "system",
-                "content": self.soul_prompt
-            })
-        
-        messages.append({
-            "role": "user",
-            "content": query
-        })
-        
-        payload = {
-            "model": "kimi-k2-0905-preview",
-            "messages": messages,
-            "temperature": 0.7,
-            "stream": stream
-        }
-        
+        stream: bool = False,
+    ) -> str:
         if stream:
-            return self._stream_chat(payload)
-        else:
-            response = self.client.post(
-                f"{self.BASE_URL}/chat/completions",
-                json=payload
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-    
-    def _stream_chat(self, payload: dict) -> Generator[str, None, None]:
-        """Stream chat response."""
-        with self.client.stream(
-            "POST",
-            f"{self.BASE_URL}/chat/completions",
-            json=payload
-        ) as response:
-            for line in response.iter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        delta = chunk["choices"][0].get("delta", {})
-                        if "content" in delta:
-                            yield delta["content"]
-                    except json.JSONDecodeError:
-                        continue
+            raise NotImplementedError("Streaming not implemented for Gemini client in this repo.")
+
+        # Prefer the new official SDK. Keep import inside method so repo can run without it.
+        try:
+            from google import genai  # pylint: disable=import-error
+        except Exception as e:
+            raise RuntimeError(
+                "Gemini SDK not installed. Install with: pip install google-genai"
+            ) from e
+
+        client = genai.Client(api_key=self.api_key)
+
+        prompt = query
+        if self.soul_prompt:
+            prompt = f"{self.soul_prompt}\n\nUser: {query}"
+
+        resp = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+        )
+        text = getattr(resp, "text", None)
+        if not text:
+            raise RuntimeError("Gemini returned empty response")
+        return text.strip()
+
+
+# Backwards-compatible alias (old name used across the repo)
+KimiClient = GeminiClient

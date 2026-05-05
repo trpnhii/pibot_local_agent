@@ -20,8 +20,9 @@ Orchestrator::Orchestrator(const Config& config)
   if (!config.newsapi_key.empty()) {
     news_ = std::make_unique<brain::tools::NewsTool>(config.newsapi_key);
   }
-  if (!config.moonshot_api_key.empty()) {
-    cloud_ = std::make_unique<brain::KimiClient>(config.moonshot_api_key, config.cloud_soul_path);
+  if (!config.gemini_api_key.empty() || !config.moonshot_api_key.empty()) {
+    const std::string key = !config.gemini_api_key.empty() ? config.gemini_api_key : config.moonshot_api_key;
+    cloud_ = std::make_unique<brain::KimiClient>(key, config.cloud_soul_path);
   }
   if (config.enable_ui) {
     ui_ = std::make_unique<ui::UIManager>(config.display_width, config.display_height, config.use_framebuffer);

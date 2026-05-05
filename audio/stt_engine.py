@@ -14,18 +14,31 @@ class WhisperSTT:
     
     def __init__(
         self,
-        whisper_path: str = "/usr/local/bin/whisper-cpp",
-        model_path: str = "/home/jansky/jansky/whisper.cpp/models/ggml-base.en-q5_0.bin",
-        language: str = "en",
+        whisper_path: Optional[str] = None,
+        model_path: Optional[str] = None,
+        language: Optional[str] = None,
         threads: int = 4
     ):
+        # Default to runtime config to avoid English-only defaults.
+        if whisper_path is None or model_path is None or language is None:
+            try:
+                from config import Config  # type: ignore
+                cfg = Config.load()
+                whisper_path = whisper_path or cfg.whisper_path
+                model_path = model_path or cfg.whisper_model
+                language = language or cfg.stt_language
+            except Exception:
+                whisper_path = whisper_path or "/usr/local/bin/whisper-cpp"
+                model_path = model_path or "/home/jansky/jansky/whisper.cpp/models/ggml-base-q5_0.bin"
+                language = language or "vi"
+
         self.whisper_path = whisper_path
         self.model_path = model_path
         self.language = language
         self.threads = threads
         
         # Verify paths
-        if not Path(whisper_path).exists():
+        if not Path(self.whisper_path).exists():
             # Try alternative paths
             alt_paths = [
                 "/home/jansky/jansky/whisper.cpp/build/bin/whisper-cli",
@@ -36,10 +49,10 @@ class WhisperSTT:
                     self.whisper_path = alt
                     break
             else:
-                raise FileNotFoundError(f"Whisper not found at {whisper_path}")
+                raise FileNotFoundError(f"Whisper not found at {self.whisper_path}")
         
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model not found at {model_path}")
+        if not Path(self.model_path).exists():
+            raise FileNotFoundError(f"Model not found at {self.model_path}")
     
     def transcribe(self, audio_path: str) -> str:
         """
@@ -63,7 +76,8 @@ class WhisperSTT:
                 "-np"  # No prints except results
             ],
             capture_output=True,
-            text=True
+            text=True,
+            check=False,
         )
         
         if process.returncode != 0:
@@ -88,7 +102,6 @@ class WhisperSTT:
         Returns:
             Transcribed text
         """
-        import numpy as np
         import wave
         
         # Save to temp file
