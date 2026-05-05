@@ -1,7 +1,7 @@
 ## Raspberry Pi 5 (Python) — Step-by-step Setup
 
 This guide sets up **Jansky** on **Raspberry Pi OS (Bookworm, 64-bit)** with:
-- **Vietnamese** defaults (`assistant_language/stt_language/tts_language = vi`)
+- **English-first** defaults (`assistant_language/stt_language/tts_language = en`)
 - **Gemini** for cloud handoff (via `GEMINI_API_KEY`)
 
 ### 0) Prereqs
@@ -82,22 +82,23 @@ cmake --build build --config Release -j"$(nproc)"
 sudo cp build/bin/whisper-cli /usr/local/bin/whisper-cpp
 ```
 
-### 8) Download a multilingual Whisper model (Vietnamese STT)
+### 8) Download an English Whisper model (English STT)
 
-Your repo is configured to use a **multilingual** model (not `*.en`).
+Your repo is configured to use an **English** Whisper model (`*.en`) for best accuracy/speed on English.
 
 From inside `whisper.cpp/`:
 
 ```bash
-# Download multilingual base model
-bash models/download-ggml-model.sh base
+# Download English base model
+bash models/download-ggml-model.sh base.en
 
-# Optional: quantize (smaller + faster)
-./build/bin/quantize models/ggml-base.bin models/ggml-base-q5_0.bin q5_0
+# Optional: try a pre-quantized download if your build doesn't have `quantize`
+# (some whisper.cpp builds don't compile the quantizer binary)
+# bash models/download-ggml-model.sh base.en-q5_0
 ```
 
-Make sure `config/config.json` points to the multilingual model, e.g.:
-- `whisper_model`: `/home/jansky/jansky/whisper.cpp/models/ggml-base-q5_0.bin`
+Make sure `config/config.json` points to the downloaded model, e.g.:
+- `whisper_model`: `/home/pi/workspace/pibot_local_agent/whisper.cpp/models/ggml-base.en.bin`
 
 Then:
 
@@ -105,7 +106,7 @@ Then:
 cd ..
 ```
 
-### 9) Download a Vietnamese Piper voice
+### 9) Download an English Piper voice
 
 Create the folder:
 
@@ -113,28 +114,27 @@ Create the folder:
 mkdir -p piper/voices
 ```
 
-Download a Vietnamese voice into `piper/voices/` (you can pick any `vi_VN-*` voice you like from Piper samples).
-Example (replace `<voice>` with the actual file you choose):
+Download an English voice into `piper/voices/`:
 
 ```bash
-wget -O "piper/voices/vi_VN-<voice>.onnx" \
-  "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/<voice>/medium/vi_VN-<voice>-medium.onnx"
-wget -O "piper/voices/vi_VN-<voice>.onnx.json" \
-  "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/<voice>/medium/vi_VN-<voice>-medium.onnx.json"
+wget -O piper/voices/en_GB-semaine-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx
+wget -O piper/voices/en_GB-semaine-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx.json
 ```
 
 Then update `config/config.json`:
-- `piper_voice`: `/home/jansky/jansky/piper/voices/<your-voice>.onnx`
+- `piper_voice`: `/home/pi/workspace/pibot_local_agent/piper/voices/en_GB-semaine-medium.onnx`
 
 ### 10) Configure `config/config.json` paths
 
 Open `config/config.json` and confirm:
-- `assistant_language`: `vi`
-- `stt_language`: `vi`
-- `tts_language`: `vi`
+- `assistant_language`: `en`
+- `stt_language`: `en`
+- `tts_language`: `en`
 - `whisper_path`: `/usr/local/bin/whisper-cpp`
-- `whisper_model`: path to a multilingual model you downloaded
-- `piper_voice`: path to your Vietnamese Piper voice
+- `whisper_model`: path to the English model you downloaded (`*.en.bin`)
+- `piper_voice`: path to your English Piper voice
 
 Also set `project_root` correctly to your clone location on the Pi, e.g. `/home/pi/pibot_local_agent`.
 
@@ -170,6 +170,20 @@ source venv/bin/activate
 python tests/test_router.py
 ```
 
+Gemini smoke test (requires `GEMINI_API_KEY` and an account/project with available quota):
+
+```bash
+source venv/bin/activate
+python tests/test_gemini.py
+```
+
+List which Gemini models your key can use:
+
+```bash
+source venv/bin/activate
+python tests/list_gemini_models.py
+```
+
 Audio pipeline test (requires mic + speaker):
 
 ```bash
@@ -183,8 +197,7 @@ python tests/test_audio_pipeline.py
   - Start: `ollama serve`
   - Confirm: `ollama list`
 - **Whisper model is wrong**
-  - Avoid `*.en` models for Vietnamese
-  - Use multilingual `base/small/...` and update `whisper_model` in `config/config.json`
+  - For English-only: use `base.en` (or other `*.en` models) and update `whisper_model` in `config/config.json`
 - **TTS voice missing**
   - Ensure both `.onnx` and `.onnx.json` exist for your selected Piper voice
 - **Audio devices not found**

@@ -7,7 +7,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_current_time",
-            "description": "Get the current time and date. (VI: lấy giờ và ngày hiện tại) Use when user asks what time/date it is / 'mấy giờ' / 'hôm nay ngày mấy'.",
+            "description": "Get the current time and date. Use when user asks what time/date it is.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -19,13 +19,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "Get current weather information for a location. (VI: tra thời tiết/nhiệt độ) Use when user asks about weather, temperature, conditions / 'thời tiết' / 'nhiệt độ'.",
+            "description": "Get current weather information for a location. Use when user asks about weather, temperature, or conditions.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "City name or location (e.g., 'London', 'New York', 'Tokyo'). VI: tên thành phố/địa điểm. If not specified, use default location."
+                        "description": "City name or location (e.g., 'London', 'New York', 'Tokyo'). If not specified, use default location."
                     }
                 },
                 "required": ["location"]
@@ -36,13 +36,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_news",
-            "description": "Get top news headlines. (VI: lấy tin tức nổi bật) Use when user asks about news/headlines / 'tin tức' / 'thời sự'.",
+            "description": "Get top news headlines. Use when user asks about news, headlines, or what's happening.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "News category: business, entertainment, health, science, sports, or technology. VI: chủ đề tin. Leave empty for general news."
+                        "description": "News category: business, entertainment, health, science, sports, or technology. Leave empty for general news."
                     }
                 },
                 "required": []
@@ -53,7 +53,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_system_status",
-            "description": "Get the assistant's system health status (CPU temp, memory, uptime). (VI: trạng thái hệ thống) Use when user asks system status / 'trạng thái hệ thống' / 'bạn khỏe không'.",
+            "description": "Get the assistant's system health status (CPU temp, memory, uptime). Use when user asks system status or health check.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -65,7 +65,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_joke",
-            "description": "Tell a random joke. (VI: kể chuyện cười) Use when user asks for a joke / 'kể chuyện cười' / 'làm tôi cười'.",
+            "description": "Tell a random joke. Use when user asks for a joke or something funny.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -77,7 +77,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "cloud_handoff",
-            "description": "Hand off complex queries to cloud AI for better answers. (VI: chuyển câu hỏi khó lên cloud) Use for creative writing, complex reasoning, coding, deep knowledge, nuanced responses.",
+            "description": "Hand off complex queries to cloud AI for better answers. Use for creative writing, complex reasoning, coding, deep knowledge, nuanced responses.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -94,7 +94,7 @@ TOOLS = [
 
 # System prompt for the router
 SYSTEM_PROMPT = """You are Jansky, a helpful voice assistant running on a Raspberry Pi. You have access to tools for specific tasks.
-You must understand both Vietnamese and English. If the user speaks Vietnamese, reply in Vietnamese.
+Reply in English.
 
 IMPORTANT RULES:
 1. For simple greetings, casual chat, and basic questions - respond directly without using tools

@@ -34,16 +34,6 @@ def test_router():
         ("What's the weather in London?", ToolType.WEATHER),
         ("Write me a poem about stars", ToolType.CLOUD),
         ("Tell me a joke", ToolType.JOKE),
-
-        # Vietnamese coverage (no diacritics to match STT outputs reliably)
-        ("Bay gio la may gio?", ToolType.TIME),
-        ("Hom nay ngay may?", ToolType.TIME),
-        ("Thoi tiet o Ha Noi the nao?", ToolType.WEATHER),
-        ("Nhiet do hom nay bao nhieu?", ToolType.WEATHER),
-        ("Cho toi tin tuc moi", ToolType.NEWS),
-        ("Tinh trang he thong the nao?", ToolType.SYSTEM_STATUS),
-        ("Ke chuyen cuoi di", ToolType.JOKE),
-        ("Viet giup toi mot bai tho ve tinh yeu", ToolType.CLOUD),
     ]
     
     print("\nTesting router decisions...\n")
