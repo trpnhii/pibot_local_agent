@@ -67,6 +67,16 @@ class Config:
         """Load configuration from file and environment."""
         config = cls()
 
+        # If running outside the Raspberry Pi image, the default /home/jansky/jansky
+        # paths won't exist. Auto-detect project root from this file location so
+        # local dev (Windows/macOS/Linux) loads the repo's config/.env correctly.
+        if not Path(config.project_root).exists():
+            detected_root = Path(__file__).resolve().parent
+            config.project_root = str(detected_root)
+            config.assets_path = str(detected_root / "assets" / "face")
+            config.local_soul_path = str(detected_root / "config" / "local_soul.md")
+            config.cloud_soul_path = str(detected_root / "config" / "cloud_soul.md")
+
         # Load from JSON file if exists
         if config_path is None:
             config_path = os.path.join(config.project_root, "config", "config.json")

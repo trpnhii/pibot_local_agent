@@ -4,11 +4,11 @@ Includes text-based tool detection fallback for smaller models.
 """
 
 import re
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from .ollama_client import OllamaClient, ChatResponse
+from .ollama_client import OllamaClient
 from .tool_definitions import TOOLS, SYSTEM_PROMPT
 
 
@@ -225,6 +225,24 @@ class Router:
             except ValueError:
                 tool_type = ToolType.NONE
 
+            # Guardrail: small models can occasionally pick the wrong tool.
+            # If the user input strongly matches a known tool keyword, prefer that.
+            heuristic_tool, heuristic_args = self._detect_tool_from_text(user_input, "")
+            if heuristic_tool != tool_type:
+                # Prefer strong heuristic when it disagrees with a tool call.
+                # - If heuristic suggests a concrete local tool → override.
+                # - If heuristic suggests cloud handoff and model chose a local tool → override.
+                if heuristic_tool not in (ToolType.NONE, ToolType.CLOUD):
+                    tool_type = heuristic_tool
+                    arguments = heuristic_args
+                elif heuristic_tool == ToolType.CLOUD and tool_type not in (ToolType.CLOUD, ToolType.NONE):
+                    tool_type = ToolType.CLOUD
+                    arguments = {"query": user_input}
+                else:
+                    arguments = tool_call.arguments
+            else:
+                arguments = tool_call.arguments
+
             self.conversation_history.append(
                 {"role": "user", "content": user_input}
             )
@@ -232,7 +250,7 @@ class Router:
             return RouterResult(
                 tool=tool_type,
                 response=None,
-                arguments=tool_call.arguments
+                arguments=arguments
             )
         else:
             # Fallback: detect tool from text

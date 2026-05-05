@@ -20,7 +20,7 @@ class GeminiClient:
         self,
         api_key: Optional[str] = None,
         soul_path: Optional[str] = None,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.0-flash",
     ):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
         if not self.api_key:
@@ -42,7 +42,7 @@ class GeminiClient:
 
         # Prefer the new official SDK. Keep import inside method so repo can run without it.
         try:
-            from google import genai  # pylint: disable=import-error
+            from google import genai  # pylint: disable=import-error,no-name-in-module
         except Exception as e:
             raise RuntimeError(
                 "Gemini SDK not installed. Install with: pip install google-genai"
