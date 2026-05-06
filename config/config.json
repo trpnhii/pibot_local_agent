@@ -10,7 +10,7 @@
   "chat_model": "qwen2.5:1.5b",
   "routing_engine": "gemini",
   "wake_word_model": "/home/pi/workspace/pibot_local_agent/models/wake_word/Hey_Jansky.onnx",
-  "wake_word_threshold": 0.2,
+  "wake_word_threshold": 0.002,
   "wake_word_log_scores": true,
   "wake_word_log_interval_s": 0.5,
   "mic_sample_rate": 44100,
