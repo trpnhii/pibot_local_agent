@@ -20,7 +20,7 @@ class GeminiClient:
         self,
         api_key: Optional[str] = None,
         soul_path: Optional[str] = None,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-2.5-flash-lite",
     ):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
         if not self.api_key:
