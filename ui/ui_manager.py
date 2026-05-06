@@ -29,13 +29,15 @@ class UIManager:
         height: int = 480,
         assets_path: str = "/home/jansky/jansky/assets/face",
         fps: int = 30,
-        use_framebuffer: bool = False
+        use_framebuffer: bool = False,
+        window_scale: float = 0.8,
     ):
         self.width = width
         self.height = height
         self.assets_path = Path(assets_path)
         self.fps = fps
         self.use_framebuffer = use_framebuffer
+        self.window_scale = max(0.2, min(1.0, window_scale))
         
         self._state = UIState.IDLE
         self._state_lock = Lock()
@@ -97,6 +99,17 @@ class UIManager:
                 flags |= pygame.FULLSCREEN
             else:
                 flags |= pygame.RESIZABLE
+
+            if not self.use_framebuffer:
+                # Open a window that is ~80% of the desktop resolution by default.
+                try:
+                    desktop_w, desktop_h = pygame.display.get_desktop_sizes()[0]
+                except Exception:
+                    info = pygame.display.Info()
+                    desktop_w, desktop_h = info.current_w, info.current_h
+                self.width = int(desktop_w * self.window_scale)
+                self.height = int(desktop_h * self.window_scale)
+
             screen = pygame.display.set_mode((self.width, self.height), flags)
             pygame.display.set_caption("Jansky")
             print(f"    Display driver: {pygame.display.get_driver()} (framebuffer={self.use_framebuffer})")
@@ -128,6 +141,13 @@ class UIManager:
                 if event.type == pygame.QUIT:
                     self._running = False
                     break
+                elif event.type == pygame.VIDEORESIZE and not self.use_framebuffer:
+                    # Recreate the window at the new size and rescale assets.
+                    self.width, self.height = event.w, event.h
+                    screen = pygame.display.set_mode((self.width, self.height), flags)
+                    self._faces = {}
+                    self._face_rects = {}
+                    self._load_faces()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self._running = False

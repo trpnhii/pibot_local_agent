@@ -8,8 +8,8 @@ import os
 import signal
 import time
 import random
+import re
 from pathlib import Path
-from typing import Optional
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent
@@ -19,8 +19,7 @@ from config import Config
 from audio.audio_manager import AudioManager
 from audio.tts_engine import PiperTTS
 from audio.stt_engine import WhisperSTT
-from brain.ollama_client import OllamaClient
-from brain.router import Router, ToolType
+from brain.router import ToolType
 from brain.tools.time_tool import get_current_time
 from brain.tools.weather_tool import WeatherTool
 from brain.tools.news_tool import NewsTool
@@ -70,11 +69,18 @@ class Orchestrator:
         )
 
         # Brain
-        print("  - Ollama client")
-        self.ollama = OllamaClient(model=config.chat_model)
-
-        print("  - Router")
-        self.router = Router(self.ollama)
+        self.routing_engine = (getattr(config, "routing_engine", "ollama") or "ollama").lower().strip()
+        if self.routing_engine == "ollama":
+            from brain.ollama_client import OllamaClient
+            from brain.router import Router
+            print("  - Ollama client")
+            self.ollama = OllamaClient(model=config.chat_model)
+            print("  - Router")
+            self.router = Router(self.ollama)
+        else:
+            # Gemini-only routing (no ollama dependency at runtime).
+            self.ollama = None
+            self.router = None
 
         # Tools (optional, may fail if API keys not set)
         self.weather = None
@@ -128,7 +134,8 @@ class Orchestrator:
                     width=config.display_width,
                     height=config.display_height,
                     assets_path=config.assets_path,
-                    use_framebuffer=config.use_framebuffer
+                    use_framebuffer=config.use_framebuffer,
+                    window_scale=getattr(config, "ui_window_scale", 0.8),
                 )
                 self.UIState = UIState
             except Exception as e:
@@ -154,6 +161,27 @@ class Orchestrator:
             print(f"  - Loaded {len(self._filler_wavs)} filler phrases")
 
         print("Initialization complete!")
+
+    def _detect_tool_local(self, text: str) -> tuple[ToolType, dict]:
+        """Keyword router used when routing_engine=gemini."""
+        t = (text or "").lower()
+
+        def has_any(phrases: list[str]) -> bool:
+            return any(p in t for p in phrases)
+
+        if has_any(["what time", "what's the time", "current time", "what day is it", "what's the date", "what date"]):
+            return ToolType.TIME, {}
+        if has_any(["weather", "temperature", "forecast"]):
+            m = re.search(r"weather (?:in|for|at)\s+([A-Za-z\s]+)", text, re.IGNORECASE)
+            loc = (m.group(1).strip() if m else "") or ""
+            return ToolType.WEATHER, {"location": loc}
+        if has_any(["news", "headlines", "top stories", "current events", "what's happening", "whats happening"]):
+            return ToolType.NEWS, {"category": ""}
+        if has_any(["system status", "health check", "cpu", "memory", "uptime", "how are you doing", "how are you feeling"]):
+            return ToolType.SYSTEM_STATUS, {}
+        if has_any(["joke", "make me laugh", "something funny", "tell me a joke"]):
+            return ToolType.JOKE, {}
+        return ToolType.CLOUD, {"query": text}
 
     def start(self):
         """Start the assistant."""
@@ -308,7 +336,16 @@ class Orchestrator:
             )
             return
 
-        result = self.router.route(text)
+        if self.routing_engine == "ollama":
+            result = self.router.route(text)
+        else:
+            tool, args = self._detect_tool_local(text)
+            class _R:
+                def __init__(self, tool, args):
+                    self.tool = tool
+                    self.arguments = args
+                    self.response = None
+            result = _R(tool, args)
 
         if result.tool == ToolType.NONE:
             print("[local ollama] Direct chat response")
@@ -354,7 +391,7 @@ class Orchestrator:
             self._speak(response)
 
         elif result.tool == ToolType.CLOUD:
-            print("[cloud kimi-k2.5] Handing off to cloud AI")
+            print("[cloud gemini] Handing off to cloud AI")
             query = result.arguments.get("query", text)
             self._handle_cloud_query(query)
 

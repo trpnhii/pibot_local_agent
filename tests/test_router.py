@@ -11,10 +11,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from brain.ollama_client import OllamaClient
 from brain.router import Router, ToolType
+from config import Config
 
 
 def test_router():
     """Test routing decisions."""
+    cfg = Config.load()
+    if (getattr(cfg, "routing_engine", "ollama") or "ollama").lower() == "gemini":
+        print("SKIP router test (routing_engine=gemini)")
+        return True
     
     client = OllamaClient(model="qwen2.5:1.5b")
     

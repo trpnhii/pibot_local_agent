@@ -31,6 +31,7 @@ class Config:
 
     # Models
     chat_model: str = "qwen2.5:1.5b"
+    routing_engine: str = "gemini"  # "gemini" (no ollama) or "ollama"
 
     # Wake word
     wake_word_model: str = "/home/jansky/jansky/models/wake_word/Hey_Jansky.onnx"
@@ -61,6 +62,7 @@ class Config:
     display_width: int = 800
     display_height: int = 480
     use_framebuffer: bool = False
+    ui_window_scale: float = 0.8
 
     # Features
     enable_streaming_tts: bool = False
