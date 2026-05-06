@@ -51,6 +51,7 @@ class Config:
     # API Keys (loaded from environment)
     openweather_api_key: str = ""
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash-lite"
     moonshot_api_key: str = ""
     newsapi_key: str = ""
 
@@ -105,6 +106,7 @@ class Config:
             config.openweather_api_key
         )
         config.gemini_api_key = os.getenv("GEMINI_API_KEY", config.gemini_api_key)
+        config.gemini_model = os.getenv("GEMINI_MODEL", config.gemini_model)
         # Backward compatibility: allow legacy env var to keep working
         config.moonshot_api_key = os.getenv("MOONSHOT_API_KEY", config.moonshot_api_key)
         if not config.gemini_api_key and config.moonshot_api_key:

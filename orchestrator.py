@@ -106,7 +106,8 @@ class Orchestrator:
             try:
                 self.cloud = KimiClient(
                     api_key=config.gemini_api_key or config.moonshot_api_key,
-                    soul_path=config.cloud_soul_path
+                    soul_path=config.cloud_soul_path,
+                    model=getattr(config, "gemini_model", "gemini-2.5-flash-lite"),
                 )
             except Exception as e:
                 print(f"    Warning: Cloud client unavailable: {e}")
@@ -250,7 +251,7 @@ class Orchestrator:
         print("Listening...")
         audio = self.audio.record_until_silence(
             silence_duration=1.5,
-            max_duration=15.0
+            max_duration=5.0
         )
 
         if audio is None or len(audio) == 0:
