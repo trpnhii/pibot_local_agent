@@ -236,7 +236,8 @@ class Orchestrator:
         print("Wake word detected!")
 
         # Clear conversation history — each wake word is a fresh interaction
-        self.router.clear_history()
+        if self.router is not None:
+            self.router.clear_history()
 
         # Pause wake word detection
         self.wake_word.pause()
