@@ -51,6 +51,8 @@ class WakeWordDetector:
         sample_rate: int = 16000,
         mic_sample_rate: int = 48000,
         mic_name: str = "",
+        log_scores: bool = False,
+        log_interval_s: float = 0.5,
         inference_framework: str = "onnx",
         gain_target_peak: float = 0.9
     ):
@@ -91,6 +93,9 @@ class WakeWordDetector:
         self._audio_queue: Queue = Queue()
         self._gain = 4.0
         self._last_scores = {}
+        self._log_scores = log_scores
+        self._log_interval_s = log_interval_s
+        self._last_log_ts = 0.0
 
     def get_last_scores(self) -> dict:
         """Return last wake-word scores (for debugging)."""
@@ -213,6 +218,14 @@ class WakeWordDetector:
 
                 predictions = self.model.predict(frame_16k)
                 self._last_scores = predictions
+
+                if self._log_scores:
+                    import time
+                    now = time.time()
+                    if now - self._last_log_ts >= self._log_interval_s and predictions:
+                        best_name, best_score = max(predictions.items(), key=lambda kv: kv[1])
+                        print("Wake score: {}={:.3f} (thr={:.2f})".format(best_name, best_score, self.threshold))
+                        self._last_log_ts = now
 
                 for model_name, score in predictions.items():
                     if score >= self.threshold:

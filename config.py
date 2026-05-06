@@ -35,6 +35,8 @@ class Config:
     # Wake word
     wake_word_model: str = "/home/jansky/jansky/models/wake_word/Hey_Jansky.onnx"
     wake_word_threshold: float = 0.5
+    wake_word_log_scores: bool = False
+    wake_word_log_interval_s: float = 0.5
 
     # Microphone settings (for USB mics that may have different sample rates)
     mic_sample_rate: int = 48000

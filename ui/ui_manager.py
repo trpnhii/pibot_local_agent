@@ -95,6 +95,8 @@ class UIManager:
             flags = pygame.HWSURFACE | pygame.DOUBLEBUF
             if self.use_framebuffer:
                 flags |= pygame.FULLSCREEN
+            else:
+                flags |= pygame.RESIZABLE
             screen = pygame.display.set_mode((self.width, self.height), flags)
             pygame.display.set_caption("Jansky")
             print(f"    Display driver: {pygame.display.get_driver()} (framebuffer={self.use_framebuffer})")

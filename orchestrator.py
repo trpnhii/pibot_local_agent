@@ -115,6 +115,8 @@ class Orchestrator:
             threshold=config.wake_word_threshold,
             mic_sample_rate=config.mic_sample_rate,
             mic_name=config.mic_name,
+            log_scores=getattr(config, "wake_word_log_scores", False),
+            log_interval_s=getattr(config, "wake_word_log_interval_s", 0.5),
         )
 
         # UI (optional)
