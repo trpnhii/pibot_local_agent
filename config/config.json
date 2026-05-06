@@ -11,7 +11,7 @@
   "routing_engine": "gemini",
   "gemini_model": "gemini-2.5-flash-lite",
   "wake_word_model": "/home/pi/workspace/pibot_local_agent/models/wake_word/Hey_Jansky.onnx",
-  "wake_word_threshold": 0.002,
+  "wake_word_threshold": 0.01,
   "wake_word_log_scores": true,
   "wake_word_log_interval_s": 0.5,
   "mic_sample_rate": 44100,
