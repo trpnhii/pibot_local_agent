@@ -47,17 +47,20 @@ def _find_first_device(kind: str) -> int:
 
 def _find_alsa_card_by_name(name_substring: str) -> str:
     """Find ALSA card number by name, returns 'plughw:N,0' string."""
+    if not name_substring:
+        return "default"
+    needle = name_substring.lower()
     try:
         result = subprocess.run(
             ["aplay", "-l"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
-            if line.startswith("card ") and name_substring in line:
+            if line.startswith("card ") and needle in line.lower():
                 card_num = line.split(":")[0].replace("card ", "").strip()
                 return "plughw:{},0".format(card_num)
     except Exception:
         pass
-    return "plughw:0,0"
+    return "default"
 
 
 # Device name substrings for lookup
@@ -105,6 +108,12 @@ class AudioManager:
             ) from e
 
         self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
+        self.speaker_sd_index = None
+        if effective_speaker_name:
+            try:
+                self.speaker_sd_index = _find_device_by_name(effective_speaker_name, "output")
+            except Exception:
+                pass
         print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
         print("    Speaker: {} ({})".format(self.speaker_alsa, effective_speaker_name or "auto"))
 
@@ -201,24 +210,47 @@ class AudioManager:
             wf.setframerate(self.sample_rate)
             wf.writeframes(audio.tobytes())
 
+    def _play_wav_sounddevice(self, filepath: str) -> None:
+        """Play WAV via PortAudio (fallback when aplay/ALSA fails)."""
+        with wave.open(filepath, "rb") as wf:
+            rate = wf.getframerate()
+            nchan = wf.getnchannels()
+            frames = wf.readframes(wf.getnframes())
+            audio_data = np.frombuffer(frames, dtype=np.int16)
+            if nchan > 1:
+                audio_data = audio_data.reshape(-1, nchan)
+            sd.play(audio_data, rate, device=self.speaker_sd_index)
+            sd.wait()
+
     def play_wav(self, filepath: str):
         """Play a WAV file through speakers."""
         self.mute()
         try:
-            subprocess.run(
-                ["aplay", "-D", self.speaker_alsa, filepath],
-                check=True,
-                capture_output=True
-            )
-        except FileNotFoundError:
-            import wave as wav_mod
-            with wav_mod.open(filepath, 'rb') as wf:
-                audio_data = np.frombuffer(
-                    wf.readframes(wf.getnframes()),
-                    dtype=np.int16
-                )
-                sd.play(audio_data, wf.getframerate())
-                sd.wait()
+            devices = []
+            for d in (self.speaker_alsa, "default", "sysdefault"):
+                if d not in devices:
+                    devices.append(d)
+
+            for dev in devices:
+                try:
+                    subprocess.run(
+                        ["aplay", "-D", dev, filepath],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    return
+                except FileNotFoundError:
+                    break
+                except subprocess.CalledProcessError as e:
+                    err = (e.stderr or e.stdout or "").strip()
+                    if err:
+                        print(f"aplay -D {dev} failed: {err}")
+
+            try:
+                self._play_wav_sounddevice(filepath)
+            except Exception as e:
+                print("Playback error: {}".format(e))
         except Exception as e:
             print("Playback error: {}".format(e))
         finally:
@@ -228,7 +260,7 @@ class AudioManager:
         """Play audio array through speakers."""
         self.mute()
         try:
-            sd.play(audio, self.sample_rate)
+            sd.play(audio, self.sample_rate, device=self.speaker_sd_index)
             sd.wait()
         finally:
             self.unmute()
