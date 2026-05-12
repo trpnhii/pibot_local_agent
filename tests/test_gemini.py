@@ -62,7 +62,7 @@ def test_gemini() -> bool:
         print("SKIP Gemini (missing GEMINI_API_KEY in repo .env)")
         return True
 
-    model = _pick_flash_model(api_key)
+    model = _read_env_value(env_path, "GEMINI_MODEL") or _pick_flash_model(api_key)
     print("Testing Gemini client...")
     client = GeminiClient(
         api_key=api_key,
@@ -90,7 +90,11 @@ def test_gemini() -> bool:
         print("X Gemini returned empty response")
         return False
 
-    print("OK Gemini response:", text[:120].replace("\n", " "))
+    # Windows terminals can have non-UTF8 encodings; avoid crashing on print.
+    preview = text[:120].replace("\n", " ")
+    out_enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe_preview = preview.encode(out_enc, errors="backslashreplace").decode(out_enc, errors="ignore")
+    print("OK Gemini response:", safe_preview)
     return True
 
 
