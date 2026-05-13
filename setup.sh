@@ -87,10 +87,10 @@ if [ ! -f "/usr/local/bin/whisper-cpp" ]; then
   sudo cp build/bin/whisper-cli /usr/local/bin/whisper-cpp
   ok "Whisper.cpp built and installed to /usr/local/bin/whisper-cpp"
 
-  info "Downloading Whisper small.en model …"
-  bash models/download-ggml-model.sh small.en
+  info "Downloading Whisper medium.en model …"
+  bash models/download-ggml-model.sh medium.en
   if [ -f build/bin/quantize ]; then
-    ./build/bin/quantize models/ggml-small.en.bin models/ggml-small.en-q5_0.bin q5_0
+    ./build/bin/quantize models/ggml-medium.en.bin models/ggml-medium.en-q5_0.bin q5_0
     ok "Whisper model quantised (q5_0)"
   fi
   cd "$SCRIPT_DIR"
