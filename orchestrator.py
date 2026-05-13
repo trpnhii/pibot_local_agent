@@ -57,6 +57,9 @@ class Orchestrator:
             mic_name=config.mic_name,
             speaker_name=config.speaker_name,
             speaker_alsa_device=getattr(config, "speaker_alsa_device", "") or "",
+            playback_sounddevice_only=bool(
+                getattr(config, "playback_sounddevice_only", False)
+            ),
         )
 
         print("  - TTS engine")

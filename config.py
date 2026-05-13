@@ -44,6 +44,8 @@ class Config:
     mic_name: str = ""
     speaker_name: str = ""
     speaker_alsa_device: str = ""
+    # If True, never use aplay (helps when HDMI drops when ALSA subprocess opens vc4 PCM).
+    playback_sounddevice_only: bool = False
 
     # Local location default
     local_location: str = "Kingston, CA"

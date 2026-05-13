@@ -76,6 +76,61 @@ def _find_alsa_card_by_name(name_substring: str) -> str:
     return "plughw:0,0"
 
 
+def _hdmi_vc4_name_hint(name: str) -> bool:
+    n = name.lower()
+    return "hdmi" in n or "vc4" in n
+
+
+def _alsa_card_is_hdmi_vc4(speaker_alsa: str) -> bool:
+    """True if plughw:N,* points at a card whose aplay listing is HDMI / vc4."""
+    if not speaker_alsa.startswith("plughw:"):
+        return False
+    try:
+        card_part = speaker_alsa.split(",")[0]
+        card_num = int(card_part.replace("plughw:", "").strip())
+    except (ValueError, IndexError):
+        return False
+    try:
+        result = subprocess.run(
+            ["aplay", "-l"], capture_output=True, text=True, check=True
+        )
+        prefix = "card {}:".format(card_num)
+        for line in result.stdout.splitlines():
+            if line.startswith(prefix):
+                low = line.lower()
+                return "hdmi" in low or "vc4" in low
+    except Exception:
+        pass
+    return False
+
+
+def _find_output_sd_index(name_substring: str) -> Optional[int]:
+    """PortAudio output index: match config substring, then common Pi HDMI aliases."""
+    if name_substring:
+        try:
+            return _find_device_by_name(name_substring, "output")
+        except Exception:
+            pass
+        needle = name_substring.lower()
+        devices = sd.query_devices()
+        for i, d in enumerate(devices):
+            if d.get("max_output_channels", 0) <= 0:
+                continue
+            dn = (d.get("name") or "").lower()
+            if needle in dn:
+                return i
+        for kw in ("vc4hdmi", "vc4-hdmi", "hdmi", "vc4"):
+            for i, d in enumerate(devices):
+                if d.get("max_output_channels", 0) <= 0:
+                    continue
+                if kw in (d.get("name") or "").lower():
+                    return i
+    try:
+        return _find_first_device("output")
+    except Exception:
+        return None
+
+
 MIC_NAME = "USB PnP Sound Device"
 SPEAKER_NAME = "UACDemoV1.0"
 
@@ -92,6 +147,7 @@ class AudioManager:
         mic_name: str = "",
         speaker_name: str = "",
         speaker_alsa_device: str = "",
+        playback_sounddevice_only: bool = False,
     ):
         self.sample_rate = sample_rate
         self.mic_sample_rate = mic_sample_rate
@@ -138,14 +194,26 @@ class AudioManager:
                 else _find_alsa_card_by_name(SPEAKER_NAME)
             )
 
-        self.speaker_sd_index = None
-        if effective_speaker_name:
-            try:
-                self.speaker_sd_index = _find_device_by_name(
-                    effective_speaker_name, "output"
-                )
-            except Exception:
-                pass
+        self.speaker_sd_index = _find_output_sd_index(effective_speaker_name)
+
+        force_aplay = os.environ.get("JANSKY_FORCE_APLAY", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        env_sd_only = os.environ.get("JANSKY_PLAYBACK_SOUNDDEVICE_ONLY", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        auto_hdmi = _hdmi_vc4_name_hint(effective_speaker_name) or _alsa_card_is_hdmi_vc4(
+            self.speaker_alsa
+        )
+        self._skip_aplay = (not force_aplay) and (
+            playback_sounddevice_only
+            or env_sd_only
+            or auto_hdmi
+        )
 
         print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
         print(
@@ -153,6 +221,10 @@ class AudioManager:
                 self.speaker_alsa, effective_speaker_name or "auto"
             )
         )
+        if self._skip_aplay:
+            print(
+                "    Playback: PortAudio only (no aplay) — avoids vc4/HDMI display glitches"
+            )
 
     def mute(self):
         with self._mute_lock:
@@ -297,6 +369,11 @@ class AudioManager:
         try:
             rate, audio = self._read_wav_int16(filepath)
             audio = self._prepend_lead_in(rate, audio)
+
+            if self._skip_aplay:
+                self._sd_play(rate, audio)
+                return
+
             fd, tmp_path = tempfile.mkstemp(prefix="jansky_play_", suffix=".wav")
             os.close(fd)
             failures: list[str] = []
