@@ -17,12 +17,9 @@ from typing import Optional
 PLAYBACK_LEAD_IN_MS = 80
 
 
-def _hdmi_or_vc4_output_hint(name_substring: str) -> bool:
-    """True if config points at Pi HDMI / vc4 audio (fragile with raw plughw + compositor)."""
-    if not name_substring:
-        return False
-    n = name_substring.lower()
-    return ("hdmi" in n) or ("vc4" in n)
+PLAYBACK_TRY_ALSA_PULSE = (
+    os.environ.get("JANSKY_ALSA_PULSE", "").strip().lower() in ("1", "true", "yes")
+)
 
 
 def _find_device_by_name(name_substring: str, kind: str) -> int:
@@ -47,6 +44,8 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
         )
     )
 
+
+def _find_first_device(kind: str) -> int:
     """Pick the first input/output device with channels."""
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
@@ -90,6 +89,7 @@ class AudioManager:
         dtype: str = 'int16',
         mic_name: str = "",
         speaker_name: str = "",
+        speaker_alsa_device: str = "",
     ):
         self.sample_rate = sample_rate
         self.mic_sample_rate = mic_sample_rate
@@ -118,8 +118,17 @@ class AudioManager:
                 "3) Set `mic_name` in config/config.json to a substring of your mic device name.\n"
             ) from e
 
-        self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
-        self._speaker_name_hint = effective_speaker_name
+        alsa_override = (
+            (speaker_alsa_device or os.getenv("JANSKY_SPEAKER_ALSA") or "").strip()
+        )
+        if alsa_override:
+            self.speaker_alsa = alsa_override
+        else:
+            self.speaker_alsa = (
+                _find_alsa_card_by_name(effective_speaker_name)
+                if effective_speaker_name
+                else _find_alsa_card_by_name(SPEAKER_NAME)
+            )
         self.speaker_sd_index = None
         if effective_speaker_name:
             try:
@@ -127,7 +136,7 @@ class AudioManager:
             except Exception:
                 pass
         print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
-        print("    Speaker: {} ({})".format(self.speaker_alsa, effective_speaker_name or "auto"))
+        print("    Speaker ALSA: {} (name match: {})".format(self.speaker_alsa, effective_speaker_name or "auto"))
 
     def mute(self):
         """Mute microphone input (during TTS playback)."""
@@ -244,12 +253,10 @@ class AudioManager:
             wf.writeframes(np.ascontiguousarray(audio).tobytes())
 
     def _alsa_playback_device_order(self) -> list[str]:
-        """Order ALSA devices: prefer mixer path for HDMI to avoid vc4 plughw glitches."""
-        prefer_mixers_first = _hdmi_or_vc4_output_hint(self._speaker_name_hint)
-        if prefer_mixers_first:
-            candidates = ("default", "pulse", self.speaker_alsa, "sysdefault")
-        else:
-            candidates = (self.speaker_alsa, "default", "pulse", "sysdefault")
+        """Try explicit card first: Pi OS Lite often breaks 'default' (error 524) without PipeWire plugins."""
+        candidates: list[str] = [self.speaker_alsa, "sysdefault", "default"]
+        if PLAYBACK_TRY_ALSA_PULSE:
+            candidates.append("pulse")
         seen: set[str] = set()
         out: list[str] = []
         for d in candidates:
