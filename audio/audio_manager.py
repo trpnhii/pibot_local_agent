@@ -7,9 +7,22 @@ import sounddevice as sd
 import numpy as np
 import wave
 import subprocess
+import shutil
+import tempfile
+import os
 from threading import Lock
 from typing import Optional
-import os
+
+# Gives HDMI/USB DAC hardware time to lock before speech (reduces clipped first syllables).
+PLAYBACK_LEAD_IN_MS = 80
+
+
+def _hdmi_or_vc4_output_hint(name_substring: str) -> bool:
+    """True if config points at Pi HDMI / vc4 audio (fragile with raw plughw + compositor)."""
+    if not name_substring:
+        return False
+    n = name_substring.lower()
+    return ("hdmi" in n) or ("vc4" in n)
 
 
 def _find_device_by_name(name_substring: str, kind: str) -> int:
@@ -34,8 +47,6 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
         )
     )
 
-
-def _find_first_device(kind: str) -> int:
     """Pick the first input/output device with channels."""
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
@@ -108,6 +119,7 @@ class AudioManager:
             ) from e
 
         self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
+        self._speaker_name_hint = effective_speaker_name
         self.speaker_sd_index = None
         if effective_speaker_name:
             try:
@@ -202,6 +214,54 @@ class AudioManager:
         decimated = normalized[::3]
         return decimated
 
+    def _read_wav_int16(self, filepath: str) -> tuple[int, np.ndarray]:
+        with wave.open(filepath, "rb") as wf:
+            rate = wf.getframerate()
+            nchan = wf.getnchannels()
+            raw = wf.readframes(wf.getnframes())
+            arr = np.frombuffer(raw, dtype=np.int16).copy()
+            if nchan > 1:
+                arr = arr.reshape(-1, nchan)
+        return rate, arr
+
+    def _prepend_lead_in(self, sample_rate: int, audio: np.ndarray) -> np.ndarray:
+        n = int(sample_rate * PLAYBACK_LEAD_IN_MS / 1000)
+        if n <= 0:
+            return audio
+        if audio.ndim == 1:
+            pad = np.zeros(n, dtype=np.int16)
+            return np.concatenate((pad, audio))
+        nch = audio.shape[1]
+        pad = np.zeros((n, nch), dtype=np.int16)
+        return np.vstack((pad, audio))
+
+    def _write_wav_int16(self, filepath: str, sample_rate: int, audio: np.ndarray) -> None:
+        nchan = 1 if audio.ndim == 1 else audio.shape[1]
+        with wave.open(filepath, "wb") as wf:
+            wf.setnchannels(nchan)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(np.ascontiguousarray(audio).tobytes())
+
+    def _alsa_playback_device_order(self) -> list[str]:
+        """Order ALSA devices: prefer mixer path for HDMI to avoid vc4 plughw glitches."""
+        prefer_mixers_first = _hdmi_or_vc4_output_hint(self._speaker_name_hint)
+        if prefer_mixers_first:
+            candidates = ("default", "pulse", self.speaker_alsa, "sysdefault")
+        else:
+            candidates = (self.speaker_alsa, "default", "pulse", "sysdefault")
+        seen: set[str] = set()
+        out: list[str] = []
+        for d in candidates:
+            if d and d not in seen:
+                seen.add(d)
+                out.append(d)
+        return out
+
+    def _sd_play(self, sample_rate: int, audio: np.ndarray) -> None:
+        sd.play(audio, sample_rate, device=self.speaker_sd_index)
+        sd.wait()
+
     def save_to_wav(self, audio: np.ndarray, filepath: str):
         """Save audio array to WAV file."""
         with wave.open(filepath, 'wb') as wf:
@@ -210,49 +270,41 @@ class AudioManager:
             wf.setframerate(self.sample_rate)
             wf.writeframes(audio.tobytes())
 
-    def _play_wav_sounddevice(self, filepath: str) -> None:
-        """Play WAV via PortAudio (fallback when aplay/ALSA fails)."""
-        with wave.open(filepath, "rb") as wf:
-            rate = wf.getframerate()
-            nchan = wf.getnchannels()
-            frames = wf.readframes(wf.getnframes())
-            audio_data = np.frombuffer(frames, dtype=np.int16)
-            if nchan > 1:
-                audio_data = audio_data.reshape(-1, nchan)
-            sd.play(audio_data, rate, device=self.speaker_sd_index)
-            sd.wait()
-
     def play_wav(self, filepath: str):
         """Play a WAV file through speakers."""
         self.mute()
         try:
-            devices = []
-            for d in (self.speaker_alsa, "default", "sysdefault"):
-                if d not in devices:
-                    devices.append(d)
-
-            for dev in devices:
-                try:
-                    subprocess.run(
-                        ["aplay", "-D", dev, filepath],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    return
-                except FileNotFoundError:
-                    break
-                except subprocess.CalledProcessError as e:
-                    err = (e.stderr or e.stdout or "").strip()
-                    if err:
-                        print(f"aplay -D {dev} failed: {err}")
-
+            rate, audio = self._read_wav_int16(filepath)
+            audio = self._prepend_lead_in(rate, audio)
+            fd, tmp_path = tempfile.mkstemp(prefix="jansky_play_", suffix=".wav")
+            os.close(fd)
             try:
-                self._play_wav_sounddevice(filepath)
+                self._write_wav_int16(tmp_path, rate, audio)
+                if shutil.which("aplay"):
+                    for dev in self._alsa_playback_device_order():
+                        try:
+                            subprocess.run(
+                                ["aplay", "-D", dev, tmp_path],
+                                check=True,
+                                capture_output=True,
+                                text=True,
+                            )
+                            return
+                        except subprocess.CalledProcessError as e:
+                            err = (e.stderr or e.stdout or "").strip()
+                            if err:
+                                print(f"aplay -D {dev} failed: {err}")
+
+                self._sd_play(rate, audio)
             except Exception as e:
-                print("Playback error: {}".format(e))
+                print(f"Playback error: {e}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
         except Exception as e:
-            print("Playback error: {}".format(e))
+            print(f"Playback error: {e}")
         finally:
             self.unmute()
 
@@ -260,7 +312,8 @@ class AudioManager:
         """Play audio array through speakers."""
         self.mute()
         try:
-            sd.play(audio, self.sample_rate, device=self.speaker_sd_index)
-            sd.wait()
+            pcm = np.asarray(audio, dtype=np.int16)
+            pcm = self._prepend_lead_in(self.sample_rate, pcm)
+            self._sd_play(self.sample_rate, pcm)
         finally:
             self.unmute()
