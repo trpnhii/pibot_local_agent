@@ -43,6 +43,7 @@ class Config:
     mic_sample_rate: int = 48000
     mic_name: str = ""
     speaker_name: str = ""
+    speaker_alsa_device: str = ""
 
     # Local location default
     local_location: str = "Kingston, CA"

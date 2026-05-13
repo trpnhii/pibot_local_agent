@@ -2,39 +2,36 @@
 Audio Manager - Handles microphone input and speaker output with muting.
 """
 
-import re
-import sounddevice as sd
-import numpy as np
-import wave
-import subprocess
-import shutil
-import tempfile
 import os
+import shutil
+import subprocess
+import tempfile
+import wave
 from threading import Lock
 from typing import Optional
+
+import numpy as np
+import sounddevice as sd
 
 # Gives HDMI/USB DAC hardware time to lock before speech (reduces clipped first syllables).
 PLAYBACK_LEAD_IN_MS = 80
 
+PLAYBACK_TRY_ALSA_PULSE = os.environ.get("JANSKY_ALSA_PULSE", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
-def _hdmi_or_vc4_output_hint(name_substring: str) -> bool:
-    """True if config points at Pi HDMI / vc4 audio (fragile with raw plughw + compositor)."""
-    if not name_substring:
-        return False
-    n = name_substring.lower()
-    return ("hdmi" in n) or ("vc4" in n)
+# When set, append these after the primary chain (for broken "default" on Pi Lite).
+PLAYBACK_TRY_ALSA_EXTRA = os.environ.get("JANSKY_ALSA_TRY_EXTRA", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 def _find_device_by_name(name_substring: str, kind: str) -> int:
-    """Find a sounddevice device index by name substring.
-
-    Args:
-        name_substring: Partial device name to match (e.g. "USB PnP Sound Device")
-        kind: "input" or "output"
-
-    Returns:
-        Device index, or raises RuntimeError if not found.
-    """
+    """Find a sounddevice device index by name substring."""
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
     for i, d in enumerate(devices):
@@ -42,28 +39,36 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
             return i
     raise RuntimeError(
         "Audio device matching '{}' ({}) not found. Available: {}".format(
-            name_substring, kind,
-            [(i, d["name"]) for i, d in enumerate(devices)]
+            name_substring,
+            kind,
+            [(i, d["name"]) for i, d in enumerate(devices)],
         )
     )
 
+
+def _find_first_device(kind: str) -> int:
     """Pick the first input/output device with channels."""
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
     for i, d in enumerate(devices):
         if d.get(channel_key, 0) > 0:
             return i
-    raise RuntimeError(f"No {kind} audio device found by sounddevice. Devices: {[(i, d.get('name')) for i, d in enumerate(devices)]}")
+    raise RuntimeError(
+        f"No {kind} audio device found by sounddevice. Devices: {[(i, d.get('name')) for i, d in enumerate(devices)]}"
+    )
 
 
 def _find_alsa_card_by_name(name_substring: str) -> str:
-    """Find ALSA card number by name, returns 'plughw:N,0' string."""
+    """Find ALSA card by name; returns 'plughw:N,0'. Fallback plughw:0,0 on Pi-like setups."""
+    if not name_substring:
+        return "plughw:0,0"
+    needle = name_substring.lower()
     try:
         result = subprocess.run(
             ["aplay", "-l"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
-            if line.startswith("card ") and name_substring in line:
+            if line.startswith("card ") and needle in line.lower():
                 card_num = line.split(":")[0].replace("card ", "").strip()
                 return "plughw:{},0".format(card_num)
     except Exception:
@@ -71,7 +76,6 @@ def _find_alsa_card_by_name(name_substring: str) -> str:
     return "plughw:0,0"
 
 
-# Device name substrings for lookup
 MIC_NAME = "USB PnP Sound Device"
 SPEAKER_NAME = "UACDemoV1.0"
 
@@ -84,9 +88,10 @@ class AudioManager:
         sample_rate: int = 16000,
         mic_sample_rate: int = 48000,
         channels: int = 1,
-        dtype: str = 'int16',
+        dtype: str = "int16",
         mic_name: str = "",
         speaker_name: str = "",
+        speaker_alsa_device: str = "",
     ):
         self.sample_rate = sample_rate
         self.mic_sample_rate = mic_sample_rate
@@ -97,12 +102,17 @@ class AudioManager:
         self._recording = False
         self._audio_buffer = []
 
-        # Resolve device indices at init time
         effective_mic_name = (mic_name or os.getenv("JANSKY_MIC_NAME") or MIC_NAME).strip()
-        effective_speaker_name = (speaker_name or os.getenv("JANSKY_SPEAKER_NAME") or SPEAKER_NAME).strip()
+        effective_speaker_name = (
+            speaker_name or os.getenv("JANSKY_SPEAKER_NAME") or SPEAKER_NAME
+        ).strip()
 
         try:
-            self.mic_device = _find_device_by_name(effective_mic_name, "input") if effective_mic_name else _find_first_device("input")
+            self.mic_device = (
+                _find_device_by_name(effective_mic_name, "input")
+                if effective_mic_name
+                else _find_first_device("input")
+            )
         except Exception as e:
             devices = sd.query_devices()
             raise RuntimeError(
@@ -115,29 +125,44 @@ class AudioManager:
                 "3) Set `mic_name` in config/config.json to a substring of your mic device name.\n"
             ) from e
 
-        self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
-        self._speaker_name_hint = effective_speaker_name
+        alsa_override = (
+            speaker_alsa_device or os.getenv("JANSKY_SPEAKER_ALSA") or ""
+        ).strip()
+        self._alsa_explicit = bool(alsa_override)
+        if alsa_override:
+            self.speaker_alsa = alsa_override
+        else:
+            self.speaker_alsa = (
+                _find_alsa_card_by_name(effective_speaker_name)
+                if effective_speaker_name
+                else _find_alsa_card_by_name(SPEAKER_NAME)
+            )
+
         self.speaker_sd_index = None
         if effective_speaker_name:
             try:
-                self.speaker_sd_index = _find_device_by_name(effective_speaker_name, "output")
+                self.speaker_sd_index = _find_device_by_name(
+                    effective_speaker_name, "output"
+                )
             except Exception:
                 pass
+
         print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
-        print("    Speaker: {} ({})".format(self.speaker_alsa, effective_speaker_name or "auto"))
+        print(
+            "    Speaker ALSA: {} (PortAudio name: {})".format(
+                self.speaker_alsa, effective_speaker_name or "auto"
+            )
+        )
 
     def mute(self):
-        """Mute microphone input (during TTS playback)."""
         with self._mute_lock:
             self.is_muted = True
 
     def unmute(self):
-        """Unmute microphone input."""
         with self._mute_lock:
             self.is_muted = False
 
     def _normalize(self, audio: np.ndarray, target_peak: float = 0.9) -> np.ndarray:
-        """Apply gain normalization for weak USB mics."""
         peak = np.max(np.abs(audio.astype(np.float64)))
         if peak < 50:
             return audio
@@ -148,12 +173,8 @@ class AudioManager:
         self,
         silence_threshold: float = 0.01,
         silence_duration: float = 1.5,
-        max_duration: float = 30.0
+        max_duration: float = 30.0,
     ) -> Optional[np.ndarray]:
-        """
-        Record audio until silence is detected.
-        Records at mic_sample_rate (48kHz), then decimates to target sample_rate (16kHz).
-        """
         if self.is_muted:
             return None
 
@@ -165,8 +186,6 @@ class AudioManager:
         total_samples = 0
 
         def callback(indata, frames, time, status):
-            if status:
-                pass  # Ignore non-fatal overflow on USB mic
             if self.is_muted or not self._recording:
                 return
             self._audio_buffer.append(indata.copy())
@@ -178,7 +197,7 @@ class AudioManager:
             dtype=self.dtype,
             blocksize=4096,
             latency="high",
-            callback=callback
+            callback=callback,
         )
         stream.start()
 
@@ -207,7 +226,6 @@ class AudioManager:
 
         raw_audio = np.concatenate(self._audio_buffer, axis=0).flatten()
         normalized = self._normalize(raw_audio)
-        # Decimate from 48kHz to 16kHz (exact factor of 3)
         decimated = normalized[::3]
         return decimated
 
@@ -241,15 +259,23 @@ class AudioManager:
             wf.writeframes(np.ascontiguousarray(audio).tobytes())
 
     def _alsa_playback_device_order(self) -> list[str]:
-        """Order ALSA devices: prefer mixer path for HDMI to avoid vc4 plughw glitches."""
-        prefer_mixers_first = _hdmi_or_vc4_output_hint(self._speaker_name_hint)
-        if prefer_mixers_first:
-            candidates = ("default", "pulse", self.speaker_alsa, "sysdefault")
-        else:
-            candidates = (self.speaker_alsa, "default", "pulse", "sysdefault")
+        """
+        Prefer direct plughw first. Do not open 'default'/'pulse' before hardware on Pi Lite
+        (avoids error 524 and missing pulse plugin). Explicit config: only that device.
+        """
+        if self._alsa_explicit:
+            return [self.speaker_alsa] if self.speaker_alsa else []
+
+        primary = [self.speaker_alsa] if self.speaker_alsa else []
+        extra: list[str] = []
+        if PLAYBACK_TRY_ALSA_EXTRA:
+            extra.extend(["sysdefault", "default"])
+            if PLAYBACK_TRY_ALSA_PULSE:
+                extra.append("pulse")
+
         seen: set[str] = set()
         out: list[str] = []
-        for d in candidates:
+        for d in primary + extra:
             if d and d not in seen:
                 seen.add(d)
                 out.append(d)
@@ -260,28 +286,28 @@ class AudioManager:
         sd.wait()
 
     def save_to_wav(self, audio: np.ndarray, filepath: str):
-        """Save audio array to WAV file."""
-        with wave.open(filepath, 'wb') as wf:
+        with wave.open(filepath, "wb") as wf:
             wf.setnchannels(self.channels)
-            wf.setsampwidth(2)  # 16-bit
+            wf.setsampwidth(2)
             wf.setframerate(self.sample_rate)
             wf.writeframes(audio.tobytes())
 
     def play_wav(self, filepath: str):
-        """Play a WAV file through speakers."""
         self.mute()
         try:
             rate, audio = self._read_wav_int16(filepath)
             audio = self._prepend_lead_in(rate, audio)
             fd, tmp_path = tempfile.mkstemp(prefix="jansky_play_", suffix=".wav")
             os.close(fd)
+            failures: list[str] = []
             try:
                 self._write_wav_int16(tmp_path, rate, audio)
-                if shutil.which("aplay"):
+                aplay_bin = shutil.which("aplay")
+                if aplay_bin:
                     for dev in self._alsa_playback_device_order():
                         try:
                             subprocess.run(
-                                ["aplay", "-D", dev, tmp_path],
+                                [aplay_bin, "-D", dev, tmp_path],
                                 check=True,
                                 capture_output=True,
                                 text=True,
@@ -290,11 +316,13 @@ class AudioManager:
                         except subprocess.CalledProcessError as e:
                             err = (e.stderr or e.stdout or "").strip()
                             if err:
-                                print(f"aplay -D {dev} failed: {err}")
-
+                                failures.append(f"{dev}: {err}")
+                if failures:
+                    print(
+                        "aplay failed (using PortAudio fallback). "
+                        + " | ".join(failures[:4])
+                    )
                 self._sd_play(rate, audio)
-            except Exception as e:
-                print(f"Playback error: {e}")
             finally:
                 try:
                     os.unlink(tmp_path)
@@ -306,7 +334,6 @@ class AudioManager:
             self.unmute()
 
     def play_audio(self, audio: np.ndarray):
-        """Play audio array through speakers."""
         self.mute()
         try:
             pcm = np.asarray(audio, dtype=np.int16)
