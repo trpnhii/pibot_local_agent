@@ -6,7 +6,7 @@
   "tts_language": "en",
   "piper_voice": "/home/pi/workspace/pibot_local_agent/piper/voices/en_GB-semaine-medium.onnx",
   "whisper_path": "/usr/local/bin/whisper-cpp",
-  "whisper_model": "/home/pi/workspace/pibot_local_agent/whisper.cpp/models/ggml-medium.en.bin",
+  "whisper_model": "/home/pi/workspace/pibot_local_agent/whisper.cpp/models/ggml-small.en.bin",
   "chat_model": "qwen2.5:1.5b",
   "routing_engine": "gemini",
   "gemini_model": "gemini-2.5-flash-lite",
