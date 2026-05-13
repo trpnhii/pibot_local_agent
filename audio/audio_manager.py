@@ -400,45 +400,95 @@ class AudioManager:
             return np.clip(a.astype(np.float32) / denom, -1.0, 1.0)
         return np.clip(a.astype(np.float32), -1.0, 1.0)
 
-    def _portaudio_prepare_pcm(self, audio: np.ndarray) -> np.ndarray:
-        """HDMI screen speakers: float32 + duplicate mono to stereo when device is 2ch."""
-        f = self._to_float32_normalized(audio)
-        if f.ndim != 1:
-            return np.ascontiguousarray(f.astype(np.float32))
-
-        if self._playback_output_max_channels() >= 2:
-            return np.ascontiguousarray(np.column_stack((f, f)).astype(np.float32))
-        return np.ascontiguousarray(f.astype(np.float32))
+    def _try_output_stream_write(
+        self,
+        buffer: np.ndarray,
+        sample_rate: int,
+        channels: int,
+        dtype_str: str,
+        device: Optional[int],
+    ) -> bool:
+        """Explicit dtype avoids PaLinuxAlsa -9994 (format negotiation) on vc4 HDMI."""
+        try:
+            with sd.OutputStream(
+                samplerate=int(sample_rate),
+                channels=channels,
+                dtype=dtype_str,
+                device=device,
+                latency="high",
+            ) as stream:
+                stream.write(np.ascontiguousarray(buffer))
+            return True
+        except Exception:
+            return False
 
     def _sd_play(self, sample_rate: int, audio: np.ndarray) -> None:
-        target_sr = self._playback_output_samplerate()
         pcm = np.asarray(audio)
-        if target_sr and abs(target_sr - sample_rate) >= 1.0:
-            if pcm.dtype != np.int16:
-                pcm = np.clip(
-                    np.round(self._to_float32_normalized(pcm) * 32768.0),
-                    -32768,
-                    32767,
-                ).astype(np.int16)
-            pcm = _resample_int16_linear(pcm, int(sample_rate), int(target_sr))
-            sample_rate = int(target_sr)
+        if pcm.dtype != np.int16:
+            pcm = np.clip(
+                np.round(self._to_float32_normalized(pcm) * 32767.0),
+                -32768,
+                32767,
+            ).astype(np.int16)
+        if pcm.ndim > 1:
+            pcm = pcm[:, 0].copy()
 
-        attempts: list[tuple[str, np.ndarray]] = []
-        stereo = self._portaudio_prepare_pcm(pcm)
-        attempts.append(("float32 stereo/mono", stereo))
-        if stereo.ndim == 2 and stereo.shape[1] == 2:
-            attempts.append(("float32 mono L", stereo[:, 0].copy()))
+        target_sr = self._playback_output_samplerate()
+        base_sr = int(sample_rate)
+        rates: list[int] = []
+        for r in (base_sr, int(target_sr) if target_sr else 0, 48000, 44100, 32000, 22050):
+            if r > 0 and r not in rates:
+                rates.append(r)
+
+        max_ch = self._playback_output_max_channels()
+        channel_opts = [1] + ([2] if max_ch >= 2 else [])
+
+        devices_to_try: list[Optional[int]] = []
+        if self.speaker_sd_index is not None:
+            devices_to_try.append(self.speaker_sd_index)
+        devices_to_try.append(None)
 
         last_err: Optional[Exception] = None
-        for label, data in attempts:
-            try:
-                sd.play(np.ascontiguousarray(data), sample_rate, device=self.speaker_sd_index)
-                sd.wait()
-                return
-            except Exception as e:
-                last_err = e
+        for out_sr in rates:
+            pcm_r = (
+                _resample_int16_linear(pcm, base_sr, out_sr)
+                if out_sr != base_sr
+                else pcm
+            )
+            mono = pcm_r.reshape(-1)
+
+            for ch in channel_opts:
+                m_norm = mono.astype(np.float32) / 32768.0
+                if ch == 2:
+                    buf_i16 = np.ascontiguousarray(
+                        np.column_stack((mono, mono)).astype(np.int16)
+                    )
+                    buf_f32 = np.ascontiguousarray(np.column_stack((m_norm, m_norm)))
+                else:
+                    buf_i16 = np.ascontiguousarray(mono.astype(np.int16))
+                    buf_f32 = np.ascontiguousarray(m_norm)
+
+                for device in devices_to_try:
+                    # int16 first — Raspberry Pi HDMI often only exposes S16_LE
+                    if self._try_output_stream_write(
+                        buf_i16, out_sr, ch, "int16", device
+                    ):
+                        return
+                    if self._try_output_stream_write(
+                        buf_f32, out_sr, ch, "float32", device
+                    ):
+                        return
+
+                    try:
+                        sd.play(buf_f32, out_sr, device=device)
+                        sd.wait()
+                        return
+                    except Exception as e:
+                        last_err = e
+
         if last_err:
             raise RuntimeError(f"PortAudio playback failed: {last_err}") from last_err
+        raise RuntimeError("PortAudio playback failed: no working format/device")
 
     def save_to_wav(self, audio: np.ndarray, filepath: str):
         with wave.open(filepath, "wb") as wf:
