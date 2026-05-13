@@ -17,7 +17,7 @@
   "mic_sample_rate": 44100,
   "mic_name": "USB PnP Sound Device",
   "target_sample_rate": 16000,
-  "speaker_name": "vc4-hdmi-0",
+  "speaker_name": "vc4-hdmi-1",
   "local_soul_path": "/home/pi/workspace/pibot_local_agent/config/local_soul.md",
   "cloud_soul_path": "/home/pi/workspace/pibot_local_agent/config/cloud_soul.md",
   "display_width": 800,
