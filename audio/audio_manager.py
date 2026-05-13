@@ -131,6 +131,23 @@ def _find_output_sd_index(name_substring: str) -> Optional[int]:
         return None
 
 
+def _resample_int16_linear(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
+    """Linear resample for int16 mono/stereo (HDMI often wants 48000 Hz; Piper may be 22050)."""
+    if src_sr == dst_sr or src_sr <= 0 or dst_sr <= 0:
+        return audio
+    a = np.asarray(audio, dtype=np.float64)
+    n_src = a.shape[0]
+    n_dst = max(1, int(round(n_src * dst_sr / src_sr)))
+    x_old = np.arange(n_src, dtype=np.float64)
+    x_new = np.linspace(0, n_src - 1, n_dst)
+    if a.ndim == 1:
+        out = np.interp(x_new, x_old, a)
+    else:
+        cols = [np.interp(x_new, x_old, a[:, c]) for c in range(a.shape[1])]
+        out = np.column_stack(cols)
+    return np.clip(np.round(out), -32768, 32767).astype(np.int16)
+
+
 MIC_NAME = "USB PnP Sound Device"
 SPEAKER_NAME = "UACDemoV1.0"
 
@@ -353,9 +370,75 @@ class AudioManager:
                 out.append(d)
         return out
 
+    def _playback_output_dev_dict(self) -> dict:
+        try:
+            if self.speaker_sd_index is not None:
+                return sd.query_devices(self.speaker_sd_index)
+            return sd.query_devices(kind="output")
+        except Exception:
+            return {}
+
+    def _playback_output_max_channels(self) -> int:
+        d = self._playback_output_dev_dict()
+        return max(1, int(d.get("max_output_channels") or 1))
+
+    def _playback_output_samplerate(self) -> Optional[float]:
+        d = self._playback_output_dev_dict()
+        r = d.get("default_samplerate")
+        return float(r) if r else None
+
+    def _to_float32_normalized(self, audio: np.ndarray) -> np.ndarray:
+        """PortAudio ALSA often rejects int16 (-9994); normalize to float32 [-1, 1]."""
+        a = np.asarray(audio)
+        if a.dtype == np.float32:
+            return np.clip(a, -1.0, 1.0)
+        if np.issubdtype(a.dtype, np.integer):
+            if a.dtype == np.int16:
+                return (a.astype(np.float32) / 32768.0).clip(-1.0, 1.0)
+            info = np.iinfo(a.dtype)
+            denom = float(max(abs(info.min), info.max))
+            return np.clip(a.astype(np.float32) / denom, -1.0, 1.0)
+        return np.clip(a.astype(np.float32), -1.0, 1.0)
+
+    def _portaudio_prepare_pcm(self, audio: np.ndarray) -> np.ndarray:
+        """HDMI screen speakers: float32 + duplicate mono to stereo when device is 2ch."""
+        f = self._to_float32_normalized(audio)
+        if f.ndim != 1:
+            return np.ascontiguousarray(f.astype(np.float32))
+
+        if self._playback_output_max_channels() >= 2:
+            return np.ascontiguousarray(np.column_stack((f, f)).astype(np.float32))
+        return np.ascontiguousarray(f.astype(np.float32))
+
     def _sd_play(self, sample_rate: int, audio: np.ndarray) -> None:
-        sd.play(audio, sample_rate, device=self.speaker_sd_index)
-        sd.wait()
+        target_sr = self._playback_output_samplerate()
+        pcm = np.asarray(audio)
+        if target_sr and abs(target_sr - sample_rate) >= 1.0:
+            if pcm.dtype != np.int16:
+                pcm = np.clip(
+                    np.round(self._to_float32_normalized(pcm) * 32768.0),
+                    -32768,
+                    32767,
+                ).astype(np.int16)
+            pcm = _resample_int16_linear(pcm, int(sample_rate), int(target_sr))
+            sample_rate = int(target_sr)
+
+        attempts: list[tuple[str, np.ndarray]] = []
+        stereo = self._portaudio_prepare_pcm(pcm)
+        attempts.append(("float32 stereo/mono", stereo))
+        if stereo.ndim == 2 and stereo.shape[1] == 2:
+            attempts.append(("float32 mono L", stereo[:, 0].copy()))
+
+        last_err: Optional[Exception] = None
+        for label, data in attempts:
+            try:
+                sd.play(np.ascontiguousarray(data), sample_rate, device=self.speaker_sd_index)
+                sd.wait()
+                return
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise RuntimeError(f"PortAudio playback failed: {last_err}") from last_err
 
     def save_to_wav(self, audio: np.ndarray, filepath: str):
         with wave.open(filepath, "wb") as wf:
