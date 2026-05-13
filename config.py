@@ -43,8 +43,6 @@ class Config:
     mic_sample_rate: int = 48000
     mic_name: str = ""
     speaker_name: str = ""
-    # Optional: force ALSA playback device (e.g. "plughw:0,0") when "default" is broken on Pi Lite.
-    speaker_alsa_device: str = ""
 
     # Local location default
     local_location: str = "Kingston, CA"
