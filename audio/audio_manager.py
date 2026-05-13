@@ -58,20 +58,17 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
 
 def _find_alsa_card_by_name(name_substring: str) -> str:
     """Find ALSA card number by name, returns 'plughw:N,0' string."""
-    if not name_substring:
-        return "default"
-    needle = name_substring.lower()
     try:
         result = subprocess.run(
             ["aplay", "-l"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
-            if line.startswith("card ") and needle in line.lower():
+            if line.startswith("card ") and name_substring in line:
                 card_num = line.split(":")[0].replace("card ", "").strip()
                 return "plughw:{},0".format(card_num)
     except Exception:
         pass
-    return "default"
+    return "plughw:0,0"
 
 
 # Device name substrings for lookup
