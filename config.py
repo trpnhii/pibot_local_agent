@@ -68,6 +68,8 @@ class Config:
     # Features
     enable_streaming_tts: bool = False
     enable_ui: bool = True
+    # If False, skip WAV/speaker output (avoids vc4 HDMI + VNC dropping when using screen speakers).
+    enable_local_speaker: bool = True
 
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "Config":

@@ -56,6 +56,9 @@ class Orchestrator:
             mic_sample_rate=config.mic_sample_rate,
             mic_name=config.mic_name,
             speaker_name=config.speaker_name,
+            enable_local_speaker=bool(
+                getattr(config, "enable_local_speaker", True)
+            ),
         )
 
         print("  - TTS engine")

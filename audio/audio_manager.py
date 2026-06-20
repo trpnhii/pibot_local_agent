@@ -1,27 +1,23 @@
 """
 Audio Manager - Handles microphone input and speaker output with muting.
+
+HDMI / vc4 note: direct ``aplay -D plughw:…`` to the Pi's HDMI audio often resets
+the display stack (HDMI + VNC drop). For vc4/hdmi speakers we skip that path and
+use PortAudio (int16) or ``paplay`` when available.
 """
 
-import re
-import sounddevice as sd
-import numpy as np
-import wave
+import os
+import shutil
 import subprocess
+import wave
 from threading import Lock
 from typing import Optional
-import os
+
+import numpy as np
+import sounddevice as sd
 
 
 def _find_device_by_name(name_substring: str, kind: str) -> int:
-    """Find a sounddevice device index by name substring.
-
-    Args:
-        name_substring: Partial device name to match (e.g. "USB PnP Sound Device")
-        kind: "input" or "output"
-
-    Returns:
-        Device index, or raises RuntimeError if not found.
-    """
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
     for i, d in enumerate(devices):
@@ -29,30 +25,34 @@ def _find_device_by_name(name_substring: str, kind: str) -> int:
             return i
     raise RuntimeError(
         "Audio device matching '{}' ({}) not found. Available: {}".format(
-            name_substring, kind,
-            [(i, d["name"]) for i, d in enumerate(devices)]
+            name_substring,
+            kind,
+            [(i, d["name"]) for i, d in enumerate(devices)],
         )
     )
 
 
 def _find_first_device(kind: str) -> int:
-    """Pick the first input/output device with channels."""
     devices = sd.query_devices()
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
     for i, d in enumerate(devices):
         if d.get(channel_key, 0) > 0:
             return i
-    raise RuntimeError(f"No {kind} audio device found by sounddevice. Devices: {[(i, d.get('name')) for i, d in enumerate(devices)]}")
+    raise RuntimeError(
+        f"No {kind} audio device found by sounddevice. Devices: {[(i, d.get('name')) for i, d in enumerate(devices)]}"
+    )
 
 
 def _find_alsa_card_by_name(name_substring: str) -> str:
-    """Find ALSA card number by name, returns 'plughw:N,0' string."""
+    if not name_substring:
+        return "plughw:0,0"
+    needle = name_substring.lower()
     try:
         result = subprocess.run(
             ["aplay", "-l"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
-            if line.startswith("card ") and name_substring in line:
+            if line.startswith("card ") and needle in line.lower():
                 card_num = line.split(":")[0].replace("card ", "").strip()
                 return "plughw:{},0".format(card_num)
     except Exception:
@@ -60,7 +60,46 @@ def _find_alsa_card_by_name(name_substring: str) -> str:
     return "plughw:0,0"
 
 
-# Device name substrings for lookup
+def _hdmi_vc4_speaker_hint(name: str) -> bool:
+    n = name.lower()
+    return "hdmi" in n or "vc4" in n
+
+
+def _find_output_sd_index(name_substring: str) -> Optional[int]:
+    if not name_substring:
+        return None
+    try:
+        return _find_device_by_name(name_substring, "output")
+    except Exception:
+        pass
+    needle = name_substring.lower()
+    for i, d in enumerate(sd.query_devices()):
+        if d.get("max_output_channels", 0) <= 0:
+            continue
+        if needle in (d.get("name") or "").lower():
+            return i
+    for kw in ("vc4hdmi", "vc4-hdmi", "hdmi", "vc4"):
+        for i, d in enumerate(sd.query_devices()):
+            if d.get("max_output_channels", 0) <= 0:
+                continue
+            if kw in (d.get("name") or "").lower():
+                return i
+    try:
+        return _find_first_device("output")
+    except Exception:
+        return None
+
+
+def _resample_int16_mono(mono: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
+    if src_sr == dst_sr or src_sr <= 0 or dst_sr <= 0:
+        return mono.astype(np.int16).reshape(-1)
+    x = np.arange(len(mono), dtype=np.float64)
+    n_dst = max(1, int(round(len(mono) * dst_sr / src_sr)))
+    x_new = np.linspace(0, len(mono) - 1, n_dst)
+    y = np.interp(x_new, x, mono.astype(np.float64))
+    return np.clip(np.round(y), -32768, 32767).astype(np.int16)
+
+
 MIC_NAME = "USB PnP Sound Device"
 SPEAKER_NAME = "UACDemoV1.0"
 
@@ -73,9 +112,10 @@ class AudioManager:
         sample_rate: int = 16000,
         mic_sample_rate: int = 48000,
         channels: int = 1,
-        dtype: str = 'int16',
+        dtype: str = "int16",
         mic_name: str = "",
         speaker_name: str = "",
+        enable_local_speaker: bool = True,
     ):
         self.sample_rate = sample_rate
         self.mic_sample_rate = mic_sample_rate
@@ -86,12 +126,25 @@ class AudioManager:
         self._recording = False
         self._audio_buffer = []
 
-        # Resolve device indices at init time
+        env_off = os.environ.get("JANSKY_DISABLE_SPEAKER", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        self._speaker_enabled = bool(enable_local_speaker) and not env_off
+        self._speaker_warned = False
+
         effective_mic_name = (mic_name or os.getenv("JANSKY_MIC_NAME") or MIC_NAME).strip()
-        effective_speaker_name = (speaker_name or os.getenv("JANSKY_SPEAKER_NAME") or SPEAKER_NAME).strip()
+        effective_speaker_name = (
+            speaker_name or os.getenv("JANSKY_SPEAKER_NAME") or SPEAKER_NAME
+        ).strip()
 
         try:
-            self.mic_device = _find_device_by_name(effective_mic_name, "input") if effective_mic_name else _find_first_device("input")
+            self.mic_device = (
+                _find_device_by_name(effective_mic_name, "input")
+                if effective_mic_name
+                else _find_first_device("input")
+            )
         except Exception as e:
             devices = sd.query_devices()
             raise RuntimeError(
@@ -104,22 +157,35 @@ class AudioManager:
                 "3) Set `mic_name` in config/config.json to a substring of your mic device name.\n"
             ) from e
 
-        self.speaker_alsa = _find_alsa_card_by_name(effective_speaker_name) if effective_speaker_name else _find_alsa_card_by_name(SPEAKER_NAME)
+        self.speaker_alsa = (
+            _find_alsa_card_by_name(effective_speaker_name)
+            if effective_speaker_name
+            else _find_alsa_card_by_name(SPEAKER_NAME)
+        )
+        self._speaker_name = effective_speaker_name
+        self._hdmi_output = _hdmi_vc4_speaker_hint(effective_speaker_name)
+        self.speaker_sd_index = _find_output_sd_index(effective_speaker_name)
+
         print("    Mic: device {} ({})".format(self.mic_device, effective_mic_name or "auto"))
-        print("    Speaker: {} ({})".format(self.speaker_alsa, effective_speaker_name or "auto"))
+        print(
+            "    Speaker: {} ({}){}".format(
+                self.speaker_alsa,
+                effective_speaker_name or "auto",
+                " [HDMI-safe playback]" if self._hdmi_output else "",
+            )
+        )
+        if not self._speaker_enabled:
+            print("    Local speaker: disabled (no WAV output; set enable_local_speaker true to hear)")
 
     def mute(self):
-        """Mute microphone input (during TTS playback)."""
         with self._mute_lock:
             self.is_muted = True
 
     def unmute(self):
-        """Unmute microphone input."""
         with self._mute_lock:
             self.is_muted = False
 
     def _normalize(self, audio: np.ndarray, target_peak: float = 0.9) -> np.ndarray:
-        """Apply gain normalization for weak USB mics."""
         peak = np.max(np.abs(audio.astype(np.float64)))
         if peak < 50:
             return audio
@@ -130,12 +196,8 @@ class AudioManager:
         self,
         silence_threshold: float = 0.01,
         silence_duration: float = 1.5,
-        max_duration: float = 30.0
+        max_duration: float = 30.0,
     ) -> Optional[np.ndarray]:
-        """
-        Record audio until silence is detected.
-        Records at mic_sample_rate (48kHz), then decimates to target sample_rate (16kHz).
-        """
         if self.is_muted:
             return None
 
@@ -147,8 +209,6 @@ class AudioManager:
         total_samples = 0
 
         def callback(indata, frames, time, status):
-            if status:
-                pass  # Ignore non-fatal overflow on USB mic
             if self.is_muted or not self._recording:
                 return
             self._audio_buffer.append(indata.copy())
@@ -160,7 +220,7 @@ class AudioManager:
             dtype=self.dtype,
             blocksize=4096,
             latency="high",
-            callback=callback
+            callback=callback,
         )
         stream.start()
 
@@ -189,46 +249,131 @@ class AudioManager:
 
         raw_audio = np.concatenate(self._audio_buffer, axis=0).flatten()
         normalized = self._normalize(raw_audio)
-        # Decimate from 48kHz to 16kHz (exact factor of 3)
         decimated = normalized[::3]
         return decimated
 
     def save_to_wav(self, audio: np.ndarray, filepath: str):
-        """Save audio array to WAV file."""
-        with wave.open(filepath, 'wb') as wf:
+        with wave.open(filepath, "wb") as wf:
             wf.setnchannels(self.channels)
-            wf.setsampwidth(2)  # 16-bit
+            wf.setsampwidth(2)
             wf.setframerate(self.sample_rate)
             wf.writeframes(audio.tobytes())
 
+    def _read_wav_mono_int16(self, filepath: str) -> tuple[int, np.ndarray]:
+        with wave.open(filepath, "rb") as wf:
+            rate = wf.getframerate()
+            nch = wf.getnchannels()
+            raw = wf.readframes(wf.getnframes())
+            arr = np.frombuffer(raw, dtype=np.int16).copy()
+            if nch > 1:
+                arr = arr.reshape(-1, nch)[:, 0]
+            else:
+                arr = arr.reshape(-1)
+        return rate, arr
+
+    def _play_paplay(self, filepath: str) -> bool:
+        pap = shutil.which("paplay")
+        if not pap:
+            return False
+        try:
+            subprocess.run([pap, filepath], check=True, capture_output=True, text=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return False
+
+    def _play_portaudio_int16(self, mono_i16: np.ndarray, sample_rate: int) -> bool:
+        """Single open, int16 — best chance with vc4 HDMI without resetting the display."""
+        devices: list[Optional[int]] = []
+        if self.speaker_sd_index is not None:
+            devices.append(self.speaker_sd_index)
+        devices.append(None)
+
+        for out_sr in (48000, 44100, int(sample_rate)):
+            if out_sr <= 0:
+                continue
+            pcm = (
+                _resample_int16_mono(mono_i16, int(sample_rate), out_sr)
+                if out_sr != int(sample_rate)
+                else mono_i16.reshape(-1).astype(np.int16)
+            )
+            for ch in (2, 1):
+                if ch == 2:
+                    buf = np.ascontiguousarray(np.column_stack((pcm, pcm)))
+                else:
+                    buf = np.ascontiguousarray(pcm.reshape(-1, 1))
+                for dev in devices:
+                    try:
+                        with sd.OutputStream(
+                            samplerate=out_sr,
+                            channels=ch,
+                            dtype="int16",
+                            device=dev,
+                            latency="high",
+                        ) as stream:
+                            stream.write(buf)
+                        return True
+                    except Exception:
+                        continue
+        return False
+
     def play_wav(self, filepath: str):
-        """Play a WAV file through speakers."""
         self.mute()
         try:
-            subprocess.run(
-                ["aplay", "-D", self.speaker_alsa, filepath],
-                check=True,
-                capture_output=True
-            )
-        except FileNotFoundError:
-            import wave as wav_mod
-            with wav_mod.open(filepath, 'rb') as wf:
-                audio_data = np.frombuffer(
-                    wf.readframes(wf.getnframes()),
-                    dtype=np.int16
+            if not self._speaker_enabled:
+                if not self._speaker_warned:
+                    print("(speaker disabled — enable_local_speaker or unset JANSKY_DISABLE_SPEAKER)")
+                    self._speaker_warned = True
+                return
+
+            if self._hdmi_output:
+                if self._play_paplay(filepath):
+                    return
+                rate, mono = self._read_wav_mono_int16(filepath)
+                if self._play_portaudio_int16(mono, rate):
+                    return
+                print(
+                    "Playback error: HDMI audio failed. Try USB speakers/headphones, "
+                    "or set enable_local_speaker to false while using VNC."
                 )
-                sd.play(audio_data, wf.getframerate())
-                sd.wait()
+                return
+
+            aplay = shutil.which("aplay")
+            if aplay:
+                try:
+                    subprocess.run(
+                        [aplay, "-D", self.speaker_alsa, filepath],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    return
+                except subprocess.CalledProcessError as e:
+                    err = (e.stderr or e.stdout or "").strip()
+                    if err:
+                        print(f"aplay failed: {err}")
+
+            rate, mono = self._read_wav_mono_int16(filepath)
+            if self._play_portaudio_int16(mono, rate):
+                return
+            sd.play(mono, rate, device=self.speaker_sd_index)
+            sd.wait()
         except Exception as e:
-            print("Playback error: {}".format(e))
+            print(f"Playback error: {e}")
         finally:
             self.unmute()
 
     def play_audio(self, audio: np.ndarray):
-        """Play audio array through speakers."""
         self.mute()
         try:
-            sd.play(audio, self.sample_rate)
+            if not self._speaker_enabled:
+                return
+            pcm = np.asarray(audio, dtype=np.int16).reshape(-1)
+            if self._hdmi_output:
+                if self._play_portaudio_int16(pcm, self.sample_rate):
+                    return
+                print("Playback error: HDMI PortAudio failed for play_audio.")
+                return
+            sd.play(pcm, self.sample_rate, device=self.speaker_sd_index)
             sd.wait()
         finally:
             self.unmute()
